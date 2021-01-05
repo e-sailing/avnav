@@ -1419,23 +1419,91 @@ span.valuePrefix{
 
 //-------------- pages with map and widgets ----------------------------
 .mapPage{
+  .widget{
+    .nightBackColor(rgba(255, 255, 255,0),rgba(0, 0, 0, 0));
+    border-style: solid;
+    border-width: 1px; 
+  }
+  .widget:hover {
+    .nightBackColor(rgba(255, 255, 255,0.8),rgba(0, 0, 0, 0.8));
+  }
+  .widgetContainer{
+    .nightBackColor(rgba(255, 255, 255,0.2),rgba(0, 0, 0, 0.2));
+  }
+  .button {
+    .nightBackColor(rgba(255, 255, 255,0.2),rgba(0, 0, 0, 0.1));
+    border-style: solid;
+    border-width: 1px;
+    border-color: black;
+  }
+
+  .bottomSection {
+    .nightBackColor(rgba(255, 255, 255,0),rgba(0, 0, 0, 0));
+    position: absolute;
+    bottom: 0;
+    z-index:2;    
+  }
+  .button:hover{
+    .nightBackColor(rgba(255, 255, 255,0.8),rgba(255, 255, 255,0.2));
+  }
+  .buttonContainer{
+    .nightBackColor(rgba(255, 255, 255,0),rgba(0, 0, 0, 0));
+    position: absolute;
+    right: 0;
+    z-index:2;    
+  }
+
+
+  .map{
+    z-index:1;    
+    overflow: hidden;
+    /* position absolute contradicts somehow the flex approach
+       but otherwise the map will not show on old Safari (IPad 4, safari 9)
+     */
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+  }
+
+  .leftPart {
+    flex-direction: row-reverse;
+  }
+
+  .emulateButtonSpace {
+    display: flex;
+    margin-left: auto;
+    height: 100%;
+    position: relative;
+    width: var(--width);    
+    z-index:-1;
+  }
+
+  .allWidgets {
+    -webkit-box-flex: 1;
+    -moz-box-flex: 1;
+    -webkit-flex: 1;
+    -ms-flex: 1;
+    flex: 1;
+    display: -webkit-box;
+    display: -moz-box;
+    display: -ms-flexbox;
+    display: -webkit-flex;
+    display: flex;
+    -webkit-box-orient: vertical;
+    -moz-box-orient: vertical;
+    -ms-flex-direction: column;
+    -webkit-flex-direction: column;
+    flex-direction: column;
+    min-width: 0;
+    position: relative;  }  
+
   .leftSection{
     .flex-display();
     .flex(1);
     .flex-direction(column);
     position: relative;
-    .map{
-      .flex(1);
-      overflow: hidden;
-      /* position absolute contradicts somehow the flex approach
-         but otherwise the map will not show on old Safari (IPad 4, safari 9)
-       */
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 0;
-      bottom: 0;
-    }
     min-width: 0;
     min-height: 0;
   }
@@ -1444,6 +1512,7 @@ span.valuePrefix{
     .flex-display();
     .flex-direction(row);
     .flex-wrap(nowrap);
+    justify-content: flex-end;
     position: relative;
     .bottomLeft{
       width: 50%;
@@ -1472,5 +1541,6 @@ span.valuePrefix{
     right: 0;
     bottom: 0;
     background-color: inherit;
+    z-index:3;    
   }
 }

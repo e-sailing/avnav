@@ -173,37 +173,45 @@ class MapPage extends React.Component{
                 style={self.props.style}
                 id={self.props.id}
                 mainContent={
-                            <React.Fragment>
-                            <div className="leftSection">
-                                <WidgetContainer
-                                    fontSize={self.props.widgetFontSize+"px"}
-                                    panel="left"
-                                    mode="vertical"
-                                />
+                    <React.Fragment>
+                            <div className="map" ref="map"/>
+                            <div style={{ '--width': `${globalStore.getData(keys.gui.global.computedButtonHeight,false)}px`}}>
+                                    <div className="emulateButtonSpace" >
+                                        <h1></h1>                               
+                                    </div>
+                            </div>
+                            <div className ="allWidgets">
+                                <div className="leftSection">
+                                    <WidgetContainer
+                                        fontSize={self.props.widgetFontSize+"px"}
+                                        panel="left"
+                                        mode="vertical"
+                                    />
                                  <WidgetContainer
                                     fontSize={self.props.widgetFontSize+"px"}
                                     panel="top"
                                     mode="horizontal"
                                 />
 
-                                <div className="map" ref="map"/>
-                                {self.props.overlayContent?self.props.overlayContent:null}
-                            </div>
-                            <div className={"bottomSection" + (globalStore.getData(keys.properties.allowTwoWidgetRows)?" twoRows":"")}>
-                                <WidgetContainer
-                                    reverse={true}
-                                    fontSize={self.props.widgetFontSize+"px"}
-                                    panel='bottomLeft'
-                                    mode="horizontal"
-                                    />
-                                <WidgetContainer
-                                    fontSize={self.props.widgetFontSize+"px"}
-                                    panel="bottomRight"
-                                    mode="horizontal"
-                                    />
+                                    {self.props.overlayContent?self.props.overlayContent:null}
+                                </div>
+                                <div className={"bottomSection" + (globalStore.getData(keys.properties.allowTwoWidgetRows)?" twoRows":"")}>
+                                    <WidgetContainer
+                                        reverse={true}
+                                        fontSize={self.props.widgetFontSize+"px"}
+                                        panel='bottomLeft'
+                                        mode="horizontal"
+                                        />
+                                    <WidgetContainer
+                                        fontSize={self.props.widgetFontSize+"px"}
+                                        panel="bottomRight"
+                                        mode="horizontal"
+                                        />
+
+                                </div>
                              </div>
-                            </React.Fragment>
-                        }
+                    </React.Fragment>
+                }
                 buttonList={self.props.buttonList}
                 buttonWidthChanged={()=>{
                     mapholder.updateSize();
