@@ -288,11 +288,36 @@ const LayoutItem=(props)=>
                     LayoutHandler.loadLayout(item.name)
                         .then((layout)=>{
                             let layoutProps=LayoutHandler.getLayoutProperties();
-                            for (let k in layoutProps){
-                                changeItem({name:k},layoutProps[k])
+                            let hasChanges=false;
+                            if (Object.keys(layoutProps).length) {
+                                let current = globalStore.getData(keys.gui.settingspage.values, {});
+                                for (let k in layoutProps) {
+                                    if (current[k] !== layoutProps[k]) {
+                                        hasChanges = true;
+                                        break;
+                                    }
+                                }
                             }
-                            changeItem(props,item.name);
-                            history.pop();
+                            if (hasChanges){
+                                OverlayDialog.confirm("The layout contains settings - do you want it to override your settings with the included ones?")
+                                    .then((x)=>{
+                                        for (let k in layoutProps){
+                                            changeItem({name:k},layoutProps[k])
+                                        }
+                                        changeItem(props,item.name);
+                                        history.pop();
+                                    })
+                                    .catch(()=> {
+                                        changeItem(props,item.name);
+                                        history.pop();
+                                        Toast("settings from layout ignored");
+                                    });
+                            }
+                            else{
+                                changeItem(props,item.name);
+                                history.pop();
+                            }
+
                         })
                         .catch((error)=>{
                             Toast(error+"");

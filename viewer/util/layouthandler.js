@@ -265,7 +265,7 @@ class LayoutHandler{
      */
     getLayoutProperties(){
         if (! this.layout || ! this.layout.properties) return {};
-        let rt=[];
+        let rt={};
         Helper.filterObjectTree(this.layout.properties,(item,path)=>{
             let description=this.propertyDescriptions[path];
             if(description !== undefined && description.canChange){
