@@ -95,10 +95,12 @@ we do not have a gpsd and we can only directly use serial readers -->
 		<Alarm name="anchor" command="sound" parameter="$BASEDIR/../sounds/anchorAlarm.mp3" repeat="20000"/>
 	</AVNAlarmHandler>
 -->
+<AVNSocketReader host="10.222.10.122" name="canboatnmea0183" port="2599"/>
+
 <AVNSocketWriter blackList="canboatnmea0183,canboat" filter="" maxDevices="5" minTime="50" name="nmea0183tosignalk" port="34569" read="true"/>
 <AVNPluginHandler>
 	<builtin-signalk enabled="true"/>
-	<builtin-canboat allowKeyOverwrite="true" autoSendRMC="30" enabled="true" host="localhost" sourceName="canboat"/>
+	<builtin-canboat allowKeyOverwrite="true" autoSendRMC="30" enabled="true" host="10.222.10.122" sourceName="canboat"/>
 <!--	<user-ocharts chartdir="/home/andreas/projects/ocharts-provider/charts" debug="10"/>-->
 <!--	<user-ocharts chartdir="/home/andreas/OCharts/desktop-DE-2020-13" ocpnPluginDir="/home/andreas/projects/oesenc_pi/debug" memPercent="3" debug="10" prefillZoom="17"/>-->
 	<user-mapproxy guiPath="gui/build/debug/index.html"/>

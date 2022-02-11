@@ -1092,7 +1092,7 @@ MapHolder.prototype.drawNorth=function() {
         size: [80,80],
         anchor: [40,40],
         backgroundCircle: '#333333',
-        backgroundAlpha: 0.15
+        backgroundAlpha: 0.25
     });
 };
 
