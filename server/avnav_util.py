@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -25,22 +24,21 @@
 #  parts from this software (AIS decoding) are taken from the gpsd project
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
+import urllib.parse
+
+import ctypes
 import logging
 import logging.handlers
-import datetime
-import itertools
 import os
-import string
-import threading
-import subprocess
-import math
 import re
+import subprocess
 import sys
-import ctypes
+import time
 import traceback
-import unicodedata
 
-VERSION="0.9.1"
+import datetime
+import math
+import threading
 
 class Enum(set):
     def __getattr__(self, name):
@@ -48,9 +46,17 @@ class Enum(set):
             return name
         raise AttributeError
 
+class AvNavFormatter(logging.Formatter):
+
+  def format(self, record):
+    record.avthread=AVNLog.getThreadId()
+    return super().format(record)
+
 
 class LogFilter(logging.Filter):
-  def __init__(self,filter):
+  def __init__(self, filter):
+    super().__init__()
+    self.filterText=filter
     self.filterre=re.compile(filter,re.I)
   def filter(self, record):
     if (self.filterre.search(record.msg)):
@@ -59,30 +65,62 @@ class LogFilter(logging.Filter):
       return True
     return False
 
-class AVNLog():
+class AVNLog(object):
   logger=logging.getLogger('avn')
   consoleHandler=None
   fhandler=None
   debugToFile=False
   logDir=None
+  SYS_gettid = 224
+  hasNativeTid=False
+  tempSequence=0
+  configuredLevel=0
+  consoleOff=False
+
+  @classmethod
+  def getSyscallId(cls):
+    if hasattr(threading,'get_native_id'):
+      cls.hasNativeTid=True
+      #newer python versions
+      return
+    if sys.platform == 'win32':
+      return
+    try:
+      lines=subprocess.check_output("echo SYS_gettid | cc -include sys/syscall.h -E - ",shell=True)
+      id=None
+      for line in lines.splitlines():
+        line=line.decode('utf-8',errors='ignore')
+        line=line.rstrip()
+        line=re.sub('#.*','',line)
+        if re.match('^ *$',line):
+          continue
+        id=eval(line)
+        if type(id) is int:
+          cls.SYS_gettid=id
+          break
+    except:
+      pass
+
   
   #1st step init of logging - create a console handler
   #will be removed after parsing the cfg file
   @classmethod
   def initLoggingInitial(cls,level):
+    cls.getSyscallId()
     try:
       numeric_level=level+0
     except:
       numeric_level = getattr(logging, level.upper(), None)
       if not isinstance(numeric_level, int):
         raise ValueError('Invalid log level: %s' % level)
-    formatter=logging.Formatter("%(asctime)s-%(process)d-%(threadName)s-%(levelname)s-%(message)s")
+    formatter=AvNavFormatter("%(asctime)s-%(process)d-%(avthread)s-%(threadName)s-%(levelname)s-%(message)s")
     cls.consoleHandler=logging.StreamHandler()
     cls.consoleHandler.setFormatter(formatter)
     cls.logger.propagate=False
     cls.logger.addHandler(cls.consoleHandler)
     cls.logger.setLevel(numeric_level)
     cls.filter=None
+    cls.configuredLevel=numeric_level
   
   @classmethod
   def levelToNumeric(cls,level):
@@ -95,11 +133,12 @@ class AVNLog():
     return numeric_level
     
   @classmethod
-  def initLoggingSecond(cls,level,filename,debugToFile=False):
-    numeric_level=cls.levelToNumeric(level)
-    formatter=logging.Formatter("%(asctime)s-%(process)d-%(threadName)s-%(levelname)s-%(message)s")
+  def initLoggingSecond(cls,level,filename,debugToFile=False,consoleOff=False):
+    numeric_level=level
+    formatter=AvNavFormatter("%(asctime)s-%(process)d-%(avthread)s-%(threadName)s-%(levelname)s-%(message)s")
+    cls.consoleOff=consoleOff
     if not cls.consoleHandler is None :
-      cls.consoleHandler.setLevel(numeric_level)
+      cls.consoleHandler.setLevel(numeric_level if not consoleOff else logging.CRITICAL+1)
     version="2.7"
     try:
       version=sys.version.split(" ")[0][0:3]
@@ -108,17 +147,66 @@ class AVNLog():
     if version != '2.6':
       cls.fhandler=logging.handlers.TimedRotatingFileHandler(filename=filename,when='midnight',backupCount=7,delay=True)
       cls.fhandler.setFormatter(formatter)
-      cls.fhandler.setLevel(logging.INFO if not debugToFile else numeric_level)
+      flevel=numeric_level
+      if flevel < logging.DEBUG and not debugToFile:
+          flevel=logging.INFO
+      cls.fhandler.setLevel(flevel)
+      cls.fhandler.doRollover()
       cls.logger.addHandler(cls.fhandler)
     cls.logger.setLevel(numeric_level)
     cls.debugToFile=debugToFile
     cls.logDir=os.path.dirname(filename)
-  
+    cls.configuredLevel=numeric_level
+
   @classmethod
-  def changeLogLevel(cls,level):
+  def setLogLevel(cls,level):
+    if cls.consoleHandler and not cls.consoleOff:
+        cls.consoleHandler.setLevel(level)
+    if cls.fhandler:
+        flevel = level
+        if flevel < logging.DEBUG and not cls.debugToFile:
+            flevel = logging.INFO
+        cls.fhandler.setLevel(flevel)
+    cls.logger.setLevel(level)
+
+  @classmethod
+  def resetRun(cls,sequence,timeout):
+    start=time.time()
+    while sequence == cls.tempSequence:
+      time.sleep(0.5)
+      now=time.time()
+      if sequence != cls.tempSequence:
+        return
+      if now < start or now >= (start+timeout):
+        cls.logger.info("resetting loglevel to %s",str(cls.configuredLevel))
+        cls.logger.setLevel(cls.configuredLevel)
+        cls.setFilter(None)
+        if not cls.consoleHandler is None:
+          cls.consoleHandler.setLevel(cls.configuredLevel)
+        if cls.debugToFile:
+          if cls.fhandler is not None:
+            cls.fhandler.setLevel(cls.configuredLevel)
+        return
+
+  @classmethod
+  def getCurrentLevelAndFilter(cls):
+    return (logging.getLevelName(cls.logger.getEffectiveLevel()),cls.filter.filterText if cls.filter is not None else '')
+  @classmethod
+  def startResetThread(cls,timeout):
+    cls.tempSequence+=1
+    sequence=cls.tempSequence
+    thread=threading.Thread(target=cls.resetRun,args=(sequence,timeout))
+    thread.setDaemon(True)
+    thread.start()
+
+
+  @classmethod
+  def changeLogLevelAndFilter(cls,level,filter,timeout=None):
     try:
       numeric_level=cls.levelToNumeric(level)
+      oldlevel=None
       if not cls.logger.getEffectiveLevel() == numeric_level:
+        oldlevel = cls.logger.getEffectiveLevel()
         cls.logger.setLevel(numeric_level)
       if not cls.consoleHandler is None:
         cls.consoleHandler.setLevel(numeric_level)
@@ -126,23 +214,27 @@ class AVNLog():
         if cls.fhandler is not None:
           cls.fhandler.setLevel(numeric_level)
         pass
+      cls.setFilter(filter)
+      if timeout is not None:
+        cls.startResetThread(timeout)
       return True
     except:
       return False
   @classmethod
   def setFilter(cls,filter):
+    oldFilter=cls.filter
     if cls.filter is not None:
       cls.consoleHandler.removeFilter(cls.filter)
       if cls.fhandler is not None:
         cls.fhandler.removeFilter(cls.filter)
       cls.filter=None
     if filter is None:
-      return
+      return oldFilter
     cls.filter=LogFilter(filter)
     cls.consoleHandler.addFilter(cls.filter)
     if cls.fhandler is not None:
       cls.fhandler.addFilter(cls.filter)
-
+    return oldFilter
 
   @classmethod
   def debug(cls,str,*args,**kwargs):
@@ -158,7 +250,7 @@ class AVNLog():
     cls.logger.error(str,*args,**kwargs)
   @classmethod
   def ld(cls,*parms):
-    cls.logger.debug(' '.join(itertools.imap(repr,parms)))
+    cls.logger.debug(' '.join(map(repr,parms)))
   @classmethod
   def getLogDir(cls):
     return cls.logDir
@@ -171,19 +263,26 @@ class AVNLog():
   @classmethod
   def getThreadId(cls):
     try:
-      SYS_gettid = 224
+      if cls.hasNativeTid:
+        return str(threading.get_native_id())
+    except:
+      pass
+    if sys.platform == 'win32':
+      return "0"
+    try:
       libc = ctypes.cdll.LoadLibrary('libc.so.6')
-      tid = libc.syscall(SYS_gettid)
-      return unicode(tid)
+      tid = libc.syscall(cls.SYS_gettid)
+      return str(tid)
     except:
       return "0"
 
 
 
-class AVNUtil():
+class AVNUtil(object):
   NAVXML="avnav.xml"
-  NM=1852.0; #convert nm into m
-  R=6371000; #earth radius in m
+  NM=1852.0 #convert nm into m
+  R=6371000 #earth radius in m
+  NMEA_SERVICE="_nmea-0183._tcp" #avahi service for NMEA
   #convert a datetime UTC to a timestamp in seconds
   @classmethod
   def datetimeToTsUTC(cls,dt):
@@ -207,7 +306,7 @@ class AVNUtil():
   #check if a given position is within a bounding box
   #all in WGS84
   #ll parameters being tuples lat,lon
-  #currently passing 180� is not handled...
+  #currently passing 180 is not handled...
   #lowerleft: smaller lat,lot
   @classmethod
   def inBox(cls,pos,lowerleft,upperright):
@@ -275,7 +374,7 @@ class AVNUtil():
     rt['lon']=float(aisdata.get('lon') or 0)/600000
     rt['speed']=(float(aisdata.get('speed') or 0)/10) * cls.NM/3600;
     rt['course']=float(aisdata.get('course') or 0)/10
-    rt['mmsi']=unicode(aisdata['mmsi'])
+    rt['mmsi']=str(aisdata['mmsi'])
     return rt
   
   #parse an ISO8601 t8ime string
@@ -304,46 +403,30 @@ class AVNUtil():
   @classmethod
   def runCommand(cls,param,threadName=None):
     if not threadName is None:
-      threading.current_thread().setName("[%s]%s"%(AVNLog.getThreadId(),threadName))
-    cmd=subprocess.Popen(param,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,close_fds=True)
-    while True:
-      line=cmd.stdout.readline()
-      if not line:
-        break
-      AVNLog.debug("[cmd]%s",line.strip())
-    cmd.poll()
-    return cmd.returncode
+      threading.current_thread().setName("%s"%threadName or '')
+    try:
+        cmd=subprocess.Popen(param,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,close_fds=True)
+        while True:
+            line=cmd.stdout.readline()
+            if not line:
+                break
+            AVNLog.debug("[cmd]%s",line.strip())
+        cmd.poll()
+        return cmd.returncode
+    except Exception as e:
+        AVNLog.error("unable to start command %s:%s"," ".join(param),str(e))
+        return -255
 
-  @classmethod
-  def importFromDir(cls,mdir,scope):
-    """import all pythin files in a directory
-       into the callers scope
-       inspired by https://gitlab.com/aurelien-lourot/importdir/tree/master
-       """
-    regexp="(.+)\.py(c?)$"
-    names=set()
-    for entry in os.listdir(mdir):
-      if os.path.isfile(os.path.join(mdir, entry)):
-        regexp_result = re.search(regexp, entry)
-        if regexp_result:  # is a module file name
-          names.add(regexp_result.groups()[0])
-    sys.path.append(mdir)
-    for module_name in sorted(names):  # for each found module...
-      try:
-        scope[module_name] = __import__(module_name)
-      except:
-        print "error importing module %s"%module_name,traceback.format_exc()
-        raise
 
   @classmethod
   def getHttpRequestParam(cls,requestparam,name,mantadory=False):
     rt = requestparam.get(name)
     if rt is None:
       if mantadory:
-        raise Exception("missing parameter %s",name)
+        raise Exception("missing parameter %s"%name)
       return None
     if isinstance(rt, list):
-      return rt[0].decode('utf-8', errors='ignore')
+      return rt[0]
     return rt
 
   @classmethod
@@ -359,7 +442,7 @@ class AVNUtil():
       rt= {'status':error}
     else:
       rt={'status':'OK'}
-    for k in kwargs.keys():
+    for k in list(kwargs.keys()):
       if kwargs[k] is not None:
         rt[k]=kwargs[k]
     return rt
@@ -370,7 +453,7 @@ class AVNUtil():
       return instr
     if param is None:
       return instr
-    for k in param.keys():
+    for k in list(param.keys()):
       instr=instr.replace("$"+k,param.get(k))
     return instr
 
@@ -390,8 +473,8 @@ class AVNUtil():
   def getDirWithDefault(cls,parameters,name,defaultSub,belowData=True):
     value=parameters.get(name)
     if value is not None:
-      if not isinstance(value,unicode):
-        value=unicode(value,errors='ignore')
+      if not isinstance(value,str):
+        value=str(value,errors='ignore')
 
 
   @classmethod
@@ -403,8 +486,18 @@ class AVNUtil():
       filename = filename.replace(r, '_')
     return filename
 
+  @classmethod
+  def getBool(cls,v,default=False):
+    if v is None:
+      return default
+    if type(v) is str:
+      return v.upper() == 'TRUE'
+    return v
 
-class ChartFile:
+
+class ChartFile(object):
+  def wakeUp(self):
+    pass
   def getScheme(self):
     return None
   def close(self):
@@ -424,3 +517,45 @@ class ChartFile:
   def getAvnavXml(self,upzoom=None):
     return None
 
+
+class AVNDownload(object):
+  def __init__(self, filename, size=None, stream=None, mimeType=None,lastBytes=None):
+    self.filename = filename
+    self.size = size
+    self.originalSize=self.size
+    self.stream = stream
+    self.mimeType = mimeType
+    self.lastBytes=lastBytes
+    if self.lastBytes is not None:
+      self.lastBytes=int(self.lastBytes)
+
+  def getSize(self):
+    if self.size is None:
+      self.size=os.path.getsize(self.filename)
+      self.originalSize=self.size
+      if self.lastBytes is not None and self.lastBytes < self.size:
+        self.size=self.lastBytes
+    return self.size
+
+  def getStream(self):
+    if self.stream is None:
+      self.stream=open(self.filename, 'rb')
+      if self.lastBytes is not None:
+        if self.originalSize is None:
+          self.getSize()
+        seekv=self.originalSize-self.lastBytes
+        if seekv > 0:
+          self.stream.seek(seekv)
+    return self.stream
+
+  def getMimeType(self, handler=None):
+    if self.mimeType is not None:
+      return self.mimeType
+    if handler is None:
+      return "application/octet-stream"
+    return handler.guess_type(self.filename)
+
+  @classmethod
+  def fileToAttach(cls,filename):
+    #see https://stackoverflow.com/questions/93551/how-to-encode-the-filename-parameter-of-content-disposition-header-in-http
+    return 'filename="%s"; filename*=utf-8\'\'%s'%(filename,urllib.parse.quote(filename))

@@ -1,4 +1,3 @@
-# !/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
@@ -27,14 +26,14 @@
 ###############################################################################
 import json
 import shutil
-import urllib
+import urllib.request, urllib.parse, urllib.error
 
 
 import avnav_handlerList
 import gemf_reader
 import mbtiles_reader
 from avnav_util import *
-from avnav_worker import AVNWorker
+from avnav_worker import WorkerStatus
 from avndirectorybase import AVNDirectoryHandlerBase, AVNDirectoryListEntry
 
 
@@ -55,7 +54,7 @@ class XmlChartFile(ChartFile):
         return None
     else:
       ovname=self.filename
-    with open(ovname,"r") as f:
+    with open(ovname,"r",encoding='utf-8') as f:
       return f.read()
 
   def deleteFiles(self):
@@ -70,7 +69,7 @@ class XmlChartFile(ChartFile):
     else:
       return self.filename
 
-  def __unicode__(self):
+  def __str__(self):
     return "xml %s"%self.filename
 
 
@@ -93,6 +92,7 @@ class ChartDescription(AVNDirectoryListEntry):
                   url=None,
                   icon=None,
                   hasFeatureInfo=None,
+                  upzoom=None,
                  **kwargs):
       super(ChartDescription,self).__init__(type,prefix,name,**kwargs)
       self._chart=None
@@ -115,6 +115,8 @@ class ChartDescription(AVNDirectoryListEntry):
       self.version=version
       self.icon=icon
       self.hasFeatureInfo=hasFeatureInfo
+      self.upzoom=upzoom
+      self.hasImporterLog=False
       if url is not None:
         self.url=url
 
@@ -205,15 +207,15 @@ class ChartDescription(AVNDirectoryListEntry):
       return self.isChart() and self.chartKey.startswith(self.INT_PREFIX+"@")
 
     def replaceParameters(self,parameters):
-      for k in self.__dict__.keys():
+      for k in list(self.__dict__.keys()):
         if k.startswith("_"):
           continue
         v=self.__dict__[k]
-        if not isinstance(v,str) and not isinstance(v,unicode):
+        if not isinstance(v,str) and not isinstance(v,str):
           continue
         self.__dict__[k]=AVNUtil.replaceParam(v,parameters)
 
-class ExternalProvider:
+class ExternalProvider(object):
   charts = None
   REPLACE_LATER="##REPLACE_LATER##"
 
@@ -225,7 +227,7 @@ class ExternalProvider:
 
   def _externalChartToDescription(self,ext):
     filteredExt=dict((key,value)
-                for key,value in ext.iteritems()
+                for key,value in ext.items()
                 if key != 'name' and key != 'keyPrefix')
     return ChartDescription('chart',self.prefix,ext['name'],
                                       keyPrefix=self.providerName,
@@ -245,7 +247,7 @@ class ExternalProvider:
 
   def getList(self,hostip):
     rt=[]
-    for chart in self.charts.values():
+    for chart in list(self.charts.values()):
       chartCopy=chart.copy() #type: ChartDescription
       chartCopy.replaceParameters({self.REPLACE_LATER:hostip})
       rt.append(chartCopy)
@@ -271,6 +273,7 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
   def __init__(self,param):
     self.param=param
     self.externalProviders={}
+    self.importer=None
     AVNDirectoryHandlerBase.__init__(self, param,'chart')
   @classmethod
   def getConfigName(cls):
@@ -313,16 +316,28 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
 
   def run(self):
     self.baseDir = self.httpServer.getChartBaseDir()
-    super(AVNChartHandler, self).run()
+    self.importer = self.findHandlerByName("AVNImporter")
+    super().run()
+
+  def wakeUp(self):
+    super().wakeUp()
+    #we need to wake all threads that are sitting at conditions
+    for item in list(self.itemList.values()):
+      chart=item.getChart()
+      if isinstance(chart,ChartFile):
+        try:
+          chart.wakeUp()
+        except:
+          pass
 
   def periodicRun(self):
     if self.baseDir is None or not os.path.isdir(self.baseDir):
-      self.setInfo("main", "directory %s not found" % self.baseDir, AVNWorker.Status.ERROR)
+      self.setInfo("main", "directory %s not found" % self.baseDir, WorkerStatus.ERROR)
       AVNLog.error("unable to find a valid chart directory %s" % (self.baseDir))
     else:
       self.setInfo("main", "handling directory %s, %d charts" % (self.baseDir, len(self.itemList)),
-                   AVNWorker.Status.NMEA)
-    for extProvider in self.externalProviders.keys():
+                   WorkerStatus.NMEA)
+    for extProvider in list(self.externalProviders.keys()):
       self.externalProviders[extProvider].queryProvider()
 
   def onItemAdd(self, itemDescription):
@@ -346,11 +361,16 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
       if chart is None:
         if not fullname.endswith(ChartDescription.OVL_EXT):
           return None
-        with open(fullname, "r") as f:
+        with open(fullname, "r",encoding='utf-8') as f:
           ovl = json.load(f)
           itemDescription.setOverlayData(ovl)
       else:
         itemDescription.setChart(chart,self.getIntParam('upzoom'))
+      itemDescription.upzoom=True
+      if self.importer is not None:
+        logName=self.importer.getLogFileName(itemDescription.name,checkExistance=True)
+        if logName is not None:
+          itemDescription.hasImporterLog=True
       return itemDescription  
     except Exception as e:
       AVNLog.error("error opening chart %s:%s",itemDescription.name,traceback.format_exc())
@@ -375,7 +395,7 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
     @return:
     """
     numChanged=0
-    for info in self.itemList.values():
+    for info in list(self.itemList.values()):
       if info.isChart():
         continue
       overlayConfig=info.getData()
@@ -397,7 +417,7 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
           numChanged+=1
           overlayConfig['overlays']=newOverlays
           try:
-            with open(os.path.join(self.baseDir,info.name),"w") as f:
+            with open(os.path.join(self.baseDir,info.name),"w",encoding='utf-8') as f:
               f.write(json.dumps(overlayConfig,indent=2))
               f.close()
           except Exception as e:
@@ -414,9 +434,8 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
       raise Exception("delete for %s not possible" % name)
     self.removeItem(name)
     if chartEntry.isChart():
-      importer = self.findHandlerByName("AVNImporter")  # cannot import this as we would get cycling dependencies...
-      if importer is not None:
-        importer.deleteImport(chartEntry.name)
+      if self.importer is not None:
+        self.importer.deleteImport(chartEntry.name)
       chartEntry.getChart().deleteFiles()
       #for our own files we can safely delete the config...
       #as it is unique for a chart
@@ -442,22 +461,12 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
     rt=super(AVNChartHandler, self).handleUpload(name, handler, requestparam)
     return rt
 
-  def _getRequestIp(self,handler,default="localhost"):
-    hostip = default
-    try:
-      host = handler.headers.get('host')
-      hostparts = host.split(':')
-      hostip = hostparts[0]
-    except:
-      pass
-    return hostip
-
   def handleList(self, handler=None):
-    hostip=self._getRequestIp(handler)
-    list=filter(lambda entry: entry.isChart(),self.itemList.values())
-    for provider in self.externalProviders.values():
-      list.extend(provider.getList(hostip))
-    return AVNUtil.getReturnData(items=list)
+    hostip=self.getRequestIp(handler)
+    clist=[entry for entry in list(self.itemList.values()) if entry.isChart()]
+    for provider in list(self.externalProviders.values()):
+      clist.extend(provider.getList(hostip))
+    return AVNUtil.getReturnData(items=clist)
 
 
   def getPathFromUrl(self, path, handler=None, requestParam=None):
@@ -479,7 +488,7 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
     if parts[1] == AVNUtil.NAVXML:
       AVNLog.debug("avnav request for chart %s",chartDescription.name)
       data=chartDescription.getData()
-      handler.writeData(data,"text/xml")
+      handler.writeData(data, "text/xml", )
       return True
     if parts[1] == "sequence":
       rsp={'status':'OK','sequence':chartDescription.getChart().getChangeCount()}
@@ -491,7 +500,7 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
     if data is None:
       handler.send_error(404,"File %s not found"%(path))
       return True
-    handler.writeData(data,"image/png")
+    handler.writeData(data, "image/png", )
     return True
 
   def getChartDescriptionByKey(self, chartKey, requestIp="localhost"):
@@ -506,7 +515,7 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
     ckp=ChartDescription.splitChartKey(chartKey)
     if ckp[0] == ChartDescription.INT_PREFIX:
       #internal chart
-      for chart in self.itemList.values():
+      for chart in list(self.itemList.values()):
         if chart.chartKey == chartKey:
           return chart.serialize()
       return None
@@ -530,10 +539,10 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
     parts=url.split("/")
     if len(parts) < 1 or len(parts)>1:
       return None
-    return urllib.unquote(parts[0])
+    return urllib.parse.unquote(parts[0])
 
   def handleSpecialApiRequest(self, command, requestparam, handler):
-    hostip=self._getRequestIp(handler)
+    hostip=self.getRequestIp(handler)
     name=AVNUtil.getHttpRequestParam(requestparam, "name")
     if not name:
       name=self._legacyNameFromUrl(AVNUtil.getHttpRequestParam(requestparam, "url"))
@@ -583,9 +592,7 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
                   # update with the final chart config
                   chartDescription=self.getChartDescriptionByKey(overlay.get('chartKey'),hostip)
                   if chartDescription is not None:
-                    overlay.update(dict(filter(
-                      lambda (k, v): k not in noMerge,
-                        chartDescription.items())))
+                    overlay.update(dict([k_v for k_v in list(chartDescription.items()) if k_v[0] not in noMerge]))
                     newOverlays.append(overlay)
                 else:
                   newOverlays.append(overlay)
@@ -595,16 +602,16 @@ class AVNChartHandler(AVNDirectoryHandlerBase):
         rt['name'] = configName
         return AVNUtil.getReturnData(data=rt)
       if command == 'listOverlays':
-        rt=filter(lambda item: not item.isChart(),self.itemList.values())
+        rt=[item for item in list(self.itemList.values()) if not item.isChart()]
         return AVNUtil.getReturnData(data=rt)
       if command == 'deleteFromOverlays':
         if name is None:
           return AVNUtil.getReturnData(error="missing name")
         type=AVNUtil.getHttpRequestParam(requestparam,'itemType')
         rt=self.deleteFromOverlays(type,name)
-        return AVNUtil.getReturnData();
+        return AVNUtil.getReturnData()
     except Exception as e:
-      return AVNUtil.getReturnData(error=e.message)
+      return AVNUtil.getReturnData(error=str(e))
     return super(AVNChartHandler, self).handleSpecialApiRequest(command, requestparam, handler)
 
   def registerExternalProvider(self,name,callback):

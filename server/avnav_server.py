@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,7 @@
 #  parts from this software (AIS decoding) are taken from the gpsd project
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
+import glob
 import logging.handlers
 import optparse
 import signal
@@ -37,59 +38,35 @@ try:
   import create_overview
 except:
   pass
-AVNAV_VERSION="development"
+AVNAV_VERSION=datetime.datetime.now().strftime("%Y%m%d")
 try:
   from avnav_server_version import AVNAV_VERSION
 except:
   pass
 from avnav_util import *
-from avnav_config import *
+from avnav_manager import *
 import avnav_handlerList
 from avnav_store import *
 sys.path.insert(0, os.path.join(os.path.dirname(__file__),"..","libraries"))
+import handler
+import builtins
 
 loggingInitialized=False
 
+def avnavPrint(*args, **kwargs):
+  line=""
+  first=True
+  for k in args:
+    line=line+k+(',' if not first else '')
+    first=False
+  AVNLog.info(line)
 
-#a dummy worker class to read some basic configurations
-class AVNBaseConfig(AVNWorker):
-  def __init__(self,param):
-    AVNWorker.__init__(self,param)
-    self.param=param
-  @classmethod
-  def getConfigName(cls):
-    return "AVNConfig"
-  @classmethod
-  def getConfigParam(cls, child=None):
-    if child is not None:
-      return None
-    return {
-            'loglevel':logging.INFO,
-            'logfile':"",
-            'expiryTime': 30,
-            'aisExpiryTime': 1200,
-            'ownMMSI':'',        #if set - do not store AIS messages with this MMSI
-            'debugToLog': 'false',
-            'maxtimeback':5,      #how many seconds we allow time to go back before we reset
-            'settimecmd': '',     #if set, use this to set the system time
-            'systimediff':5,      #how many seconds do we allow the system time to be away from us
-            'settimeperiod': 3600 #how often do we set the system time
-    }
-  @classmethod
-  def preventMultiInstance(cls):
-    return True
-  def start(self):
-    pass
+builtins.print=avnavPrint
 
-avnav_handlerList.registerHandler(AVNBaseConfig)
+
 
 def sighandler(signal,frame):
-  for handler in AVNWorker.allHandlers:
-    try:
-      handler.stopChildren()
-    except:
-      pass
-  sys.exit(1)
+  AVNWorker.shutdownServer()
         
 def findHandlerByConfig(list,configName):
   for h in list:
@@ -97,6 +74,59 @@ def findHandlerByConfig(list,configName):
       return h
   return None
 
+def getFailedBackupName(fileName):
+  now=datetime.datetime.utcnow()
+  return fileName+"-failed-"+now.strftime("%Y%m%d%H%M%S")
+
+def houseKeepingCfg(cfgFile):
+  backupFiles=glob.glob(cfgFile+"-*")
+  namelen=len(cfgFile)
+  failingFiles=list(filter(lambda x: re.match("^-fail",x[namelen:]),backupFiles))
+  copies=list(filter(lambda x: re.match("^-[0-9]",x[namelen:]),backupFiles))
+  failingFiles.sort()
+  copies.sort()
+  numDeletes=0
+  for f in failingFiles[:-10]:
+    AVNLog.debug("deleting failed config %s",f)
+    try:
+      os.unlink(f)
+      numDeletes+=1
+    except:
+      pass
+  for f in copies[:-10]:
+    AVNLog.debug("deleting config copy %s",f)
+    try:
+      os.unlink(f)
+      numDeletes+=1
+    except:
+      pass
+  AVNLog.info("deleted %s backups/failed configs",numDeletes)
+
+def createFailedBackup(cfgname):
+  failedBackup = getFailedBackupName(cfgname)
+  try:
+    shutil.copy(cfgname, failedBackup)
+    AVNLog.error("created backup %s of failed config %s",failedBackup,cfgname)
+    return True
+  except:
+    AVNLog.error("unable to create failed backup %s", failedBackup)
+  return False
+
+def setLogFile(filename,level,consoleOff=False):
+  if not os.path.exists(os.path.dirname(filename)):
+    os.makedirs(os.path.dirname(filename), 0o777)
+  firstLevel=level
+  if firstLevel > logging.INFO:
+    firstLevel=logging.INFO
+  AVNLog.initLoggingSecond(firstLevel, filename, debugToFile=True,consoleOff=consoleOff)
+  AVNLog.info("#### avnserver pid=%d,version=%s,parameters=%s start processing ####", os.getpid(), AVNAV_VERSION,
+              " ".join(sys.argv))
+  if firstLevel != level:
+    AVNLog.setLogLevel(level)
+
+LOGFILE="avnav.log"
+def writeStderr(txt):
+  sys.stderr.write("AVNAV-ERROR: "+txt+"\n")
 def main(argv):
   global loggingInitialized,debugger
   try:
@@ -107,15 +137,12 @@ def main(argv):
     pass
   debugger=sys.gettrace()
   cfgname=None
-  usage="usage: %s [-q][-d][-p pidfile] [-c mapdir] [configfile] " % (argv[0])
+  usage="usage: %s [-q][-d][-p pidfile] [-c mapdir] [-l loglevel] [configfile] " % (argv[0])
   parser = optparse.OptionParser(
         usage = usage,
         version=AVNAV_VERSION,
         description='av navserver')
-  parser.add_option("-q", "--quiet", action="store_const", 
-        const=100, default=logging.INFO, dest="verbose")
-  parser.add_option("-d", "--debug", action="store_const", 
-        const=logging.DEBUG, dest="verbose")
+  parser.add_option("-q", "--quiet",  dest="quiet", action="store_true" ,help="do not log to stderr")
   parser.add_option("-e", "--error", action="store_const",
                     const=True, dest="failOnError")
   parser.add_option("-p", "--pidfile", dest="pidfile", help="if set, write own pid to this file")
@@ -124,45 +151,86 @@ def main(argv):
                     help="if set make this the base data dir")
   parser.add_option("-u", "--urlmap", dest="urlmap",
                     help="provide mappings in the form url=path,...")
+  parser.add_option("-r", "--restart", dest="canRestart", action='store_const', const=True,
+                    help="avnav will restart if server exits")
+  parser.add_option("-l", "--loglevel", dest="loglevel", default="INFO", help="loglevel, default INFO")
+  parser.add_option("-d","--debug",dest="loglevel", action="store_const", const="DEBUG")
   (options, args) = parser.parse_args(argv[1:])
   if len(args) < 1:
     cfgname=os.path.join(os.path.dirname(argv[0]),"avnav_server.xml")
   else:
     cfgname=args[0]
-  AVNLog.initLoggingInitial(options.verbose if not options.verbose is None else logging.INFO)
-  AVNUtil.importFromDir(os.path.join(os.path.dirname(__file__), "handler"), globals())
-  basedir=os.path.abspath(os.path.dirname(__file__))
-  datadir=options.datadir
+  AVNLog.initLoggingInitial(AVNLog.levelToNumeric(options.loglevel))
+  basedir = os.path.abspath(os.path.dirname(__file__))
+  datadir = options.datadir
   if datadir is None:
     if options.chartbase is not None:
-      datadir=os.path.join(options.chartbase,os.path.pardir)
+      datadir = os.path.join(options.chartbase, os.path.pardir)
   if datadir is None:
-    datadir=os.path.join(os.path.expanduser("~"),"avnav")
-  datadir=os.path.abspath(datadir)
-  AVNLog.info("basedir=%s,datadir=%s",basedir,datadir)
-  cfg=AVNConfig()
-  cfg.setBaseParam(cfg.BASEPARAM.BASEDIR,basedir)
-  cfg.setBaseParam(cfg.BASEPARAM.DATADIR,datadir)
-  rt=cfg.readConfigAndCreateHandlers(cfgname)
-  fallbackName = AVNConfig.getFallbackName(cfgname)
+    datadir = os.path.join(os.path.expanduser("~"), "avnav")
+  datadir = os.path.abspath(datadir)
+  AVNLog.info("basedir=%s,datadir=%s", basedir, datadir)
+  systemdEnv = os.environ.get('INVOCATION_ID')
+  quiet=False
+  if options.quiet or systemdEnv is not None:
+    quiet=True
+  logDir = os.path.join(datadir, "log")
+  logFile = os.path.join(logDir, LOGFILE)
+  AVNLog.info("####start processing (version=%s, logging to %s, parameters=%s)####", AVNAV_VERSION, logFile,
+                " ".join(argv))
+
+  setLogFile(logFile,AVNLog.levelToNumeric(options.loglevel),consoleOff=quiet)
+  canRestart=options.canRestart or systemdEnv is not None
+  handlerManager=AVNHandlerManager(canRestart)
+  handlerManager.setBaseParam(handlerManager.BASEPARAM.BASEDIR,basedir)
+  handlerManager.setBaseParam(handlerManager.BASEPARAM.DATADIR,datadir)
+  usedCfgFile=cfgname
+  rt=handlerManager.readConfigAndCreateHandlers(cfgname)
+  fallbackName = AVNHandlerManager.getFallbackName(cfgname)
+  failedBackup=None
   if rt is False:
     if os.path.exists(fallbackName) and not options.failOnError:
       AVNLog.error("error when parsing %s, trying fallback %s",cfgname,fallbackName)
-      rt=cfg.readConfigAndCreateHandlers(fallbackName)
+      writeStderr("error when parsing %s, trying fallback %s"%(cfgname,fallbackName))
+      usedCfgFile=fallbackName
+      rt=handlerManager.readConfigAndCreateHandlers(fallbackName)
       if not rt:
         AVNLog.error("unable to parse config file %s", fallbackName)
         sys.exit(1)
-      cfg.cfgfileName=cfgname #we just did read the fallback - but if we write...
+      createFailedBackup(cfgname)
+      try:
+        tmpName=cfgname+".tmp"+str(os.getpid())
+        shutil.copyfile(fallbackName,tmpName)
+        os.replace(tmpName,cfgname)
+      except Exception as e:
+        AVNLog.error("unable to create %s from %s: %s",cfgname,fallbackName,str(e))
+      handlerManager.cfgfileName=cfgname #we just did read the fallback - but if we write...
+
     else:
-      AVNLog.error("unable to parse config file %s",cfgname)
+      AVNLog.error("unable to parse config file %s, no fallback found",cfgname)
+      writeStderr("unable to parse config file %s, no fallback found"%cfgname)
+      if not options.failOnError and canRestart:
+        if createFailedBackup(cfgname):
+          AVNLog.error("removing invalid config file %s",cfgname)
+          writeStderr("removing invalid config file %s"%cfgname)
+          os.unlink(cfgname)
       sys.exit(1)
   else:
-    cfg.copyFileWithCheck(cfgname,fallbackName,False) #write a "last known good"
+    handlerManager.copyFileWithCheck(cfgname,fallbackName,False) #write a "last known good"
   baseConfig=AVNWorker.findHandlerByName("AVNConfig")
   httpServer=AVNWorker.findHandlerByName("AVNHttpServer")
   if baseConfig is None:
-    #no entry for base config found - using defaults
-    baseConfig=AVNBaseConfig(AVNBaseConfig.getConfigParam())
+    AVNLog.error("internal error: base config not loaded")
+    sys.exit(1)
+  baseConfig.setVersion(AVNAV_VERSION)
+  parseError=handlerManager.parseError
+  cfgStat = os.stat(usedCfgFile)
+  cfgTime = time.strftime("%Y/%m/%d %H:%M:%S", time.localtime(cfgStat.st_mtime))
+  if parseError is not None:
+    baseConfig.setStartupError("parsing config failed: %s, reverting back to fallback config from %s, invalid config moved to %s"%
+                             (parseError,cfgTime or '',failedBackup or ''))
+  baseConfig.setConfigInfo("%s (%s,%d bytes)"%(usedCfgFile,cfgTime,cfgStat.st_size))
+  houseKeepingCfg(cfgname)
   if httpServer is not None and options.chartbase is not None:
     mapurl=httpServer.getStringParam('chartbase')
     if mapurl is not None and mapurl != '':
@@ -180,29 +248,19 @@ def main(argv):
       handledCommands=handler.getHandledCommands()
       if handledCommands is not None:
         if isinstance(handledCommands,dict):
-          for h in handledCommands.keys():
+          for h in list(handledCommands.keys()):
             httpServer.registerRequestHandler(h,handledCommands[h],handler)
         else:
           httpServer.registerRequestHandler('api',handledCommands,handler)
-  navData=AVNStore(float(baseConfig.param['expiryTime']),float(baseConfig.param['aisExpiryTime']),baseConfig.param['ownMMSI'])
+    httpServer.registerRequestHandler('api','config',handlerManager)
+    httpServer.registerRequestHandler('download', 'config', handlerManager)
+  navData=AVNStore(
+    float(baseConfig.param['expiryTime']),
+    float(baseConfig.param['aisExpiryTime']),
+    baseConfig.param['ownMMSI'])
   NMEAParser.registerKeys(navData)
-  level=logging.INFO
-  filename=os.path.join(datadir,"log","avnav.log")
-  if not options.verbose is None:
-    level=options.verbose
-  else:    
-    if not baseConfig.param.get("loglevel") is None:
-      level=baseConfig.param.get("loglevel")
-  AVNLog.ld("baseconfig",baseConfig.param)
-  if not baseConfig.param.get("logfile") == "":
-    filename=os.path.expanduser(baseConfig.param.get("logfile"))
-  AVNLog.info("####start processing (version=%s, logging to %s, parameters=%s)####",AVNAV_VERSION,filename," ".join(argv))
-  if not os.path.exists(os.path.dirname(filename)):
-    os.makedirs(os.path.dirname(filename), 0777)
-  AVNLog.initLoggingSecond(level, filename,baseConfig.getParam()['debugToLog'].upper()=='TRUE') 
-  AVNLog.info("#### avnserver pid=%d,version=%s,parameters=%s start processing ####",os.getpid(),AVNAV_VERSION," ".join(argv))
   if options.pidfile is not None:
-    f=open(options.pidfile,"w")
+    f=open(options.pidfile,"w",encoding='utf-8')
     if f is not None:
       f.write(str(os.getpid())+"\n")
       f.close()
@@ -215,19 +273,7 @@ def main(argv):
   except:
     pass
   try:
-    groups=set()
-    for handler in AVNWorker.getAllHandlers():
-      groups.add(handler.getStartupGroup())
-    grouplist=list(groups)
-    grouplist.sort()
-    for group in grouplist:
-      for handler in AVNWorker.getAllHandlers():
-        try:
-          if handler.getStartupGroup() == group:
-            handler.startInstance(navData)
-        except Exception:
-          AVNLog.warn("unable to start handler : "+traceback.format_exc())
-    AVNLog.info("All Handlers started")
+    handlerManager.startHandlers(navData)
     
     #---------------------------- main loop --------------------------------
     #check if we have a position and handle time updates
@@ -236,8 +282,8 @@ def main(argv):
     lastutc=datetime.datetime.utcnow()
     timeFalse=False
     
-    while True:
-      time.sleep(3)
+    while not handlerManager.shouldStop:
+      time.sleep(1)
       #query the data to get old entries being removed 
       curutc=datetime.datetime.utcnow()
       delta=curutc-lastutc
@@ -245,6 +291,13 @@ def main(argv):
       if AVNUtil.total_seconds(delta) < -allowedBackTime and allowedBackTime != 0:
         AVNLog.warn("time shift backward (%d seconds) detected, deleting all entries ",AVNUtil.total_seconds(delta))
         navData.reset()
+        #if the time is shifting all condition waits must
+        #be notified...
+        for h in AVNWorker.allHandlers:
+          try:
+            h.wakeUp()
+          except:
+            pass
         hasFix=False
       lastutc=curutc
       lat=None
@@ -285,11 +338,6 @@ def main(argv):
                   cmdThread=threading.Thread(target=AVNUtil.runCommand,args=(cmd,"setTime"))
                   cmdThread.start()
                   cmdThread.join(20)
-                  if cmdThread.isAlive():
-                    #AVNLog.error("unable to finish setting the system time within 40s")
-                    pass
-                  else:
-                    pass
                   curutc=datetime.datetime.utcnow()
                   if abs(AVNUtil.total_seconds(curts-curutc)) > allowedDiff:
                     AVNLog.error("unable to set system time to %s, still above difference",newtime)
@@ -297,6 +345,16 @@ def main(argv):
                     AVNLog.info("setting system time to %s succeeded",newtime)
                     lastsettime=curutc
                     timeFalse=False
+                    for h in AVNWorker.allHandlers:
+                      try:
+                        h.timeChanged()
+                      except:
+                        pass
+                      try:
+                        h.wakeUp()
+                      except:
+                        pass
+
               else:
                 #time is OK now
                 if timeFalse:
@@ -314,7 +372,8 @@ def main(argv):
 
   except Exception as e:
     AVNLog.error("Exception in main %s",traceback.format_exc())
-    sighandler(None, None)
+  AVNLog.info("stopping")
+  sighandler(None, None)
    
 if __name__ == "__main__":
     main(sys.argv)

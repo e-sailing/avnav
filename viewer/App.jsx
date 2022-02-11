@@ -36,6 +36,10 @@ import Mob from './components/Mob.js';
 import Dimmer from './util/dimhandler.js';
 import Button from './components/Button.jsx';
 import LeaveHandler from './util/leavehandler';
+import EditHandlerDialog from "./components/EditHandlerDialog";
+import AndroidEventHandler from './util/androidEventHandler';
+import And from "ol/format/filter/And";
+import remotechannel, {COMMANDS} from "./util/remotechannel";
 
 
 const DynamicSound=Dynamic(SoundHandler);
@@ -124,7 +128,7 @@ const ButtonSizer=(props)=>{
         let style={fontSize:fontSize+"px"};
         return(
             <div className="buttonSizer" style={style} ref={props.refFunction}>
-                <Button/>
+                <Button name={"dummy"}/>
             </div>
         )};
 
@@ -177,7 +181,35 @@ class App extends React.Component {
                 history.push("addonpage", {activeAddOn: addon});
             }
         },'addon',['0','1','2','3','4','5','6','7']);
+        this.newDeviceHandler=this.newDeviceHandler.bind(this);
+        this.subscription=AndroidEventHandler.subscribe('deviceAdded',this.newDeviceHandler);
+        this.remoteChannel=remotechannel;
+        this.remoteChannel.start();
+        this.remoteChannel.subscribe(COMMANDS.setPage,(msg)=>{
+            let parts=msg.split(/  */);
+            try {
+                let location = parts[0];
+                let options={};
+                if (parts.length > 1) {
+                    options = JSON.parse(parts[1]);
+                }
+                if (pages[location] === undefined){
+                    return;
+                }
+                history.setFromRemote(location,options);
+            }catch (e){}
+        });
 
+    }
+    newDeviceHandler(){
+        try{
+            let devData=avnav.android.getAttachedDevice();
+            if (! devData) return;
+            let config=JSON.parse(devData);
+            if (config.typeName && config.initialParameters){
+                EditHandlerDialog.createNewHandlerDialog(config.typeName,config.initialParameters);
+            }
+        }catch(e){}
     }
     static getDerivedStateFromError(error) {
         lastError.error=error;
@@ -215,10 +247,12 @@ class App extends React.Component {
         this.setState({interval:iv});
         window.addEventListener('resize',this.checkSizes);
         AlarmHandler.start();
+        this.newDeviceHandler();
 
 
     }
     componentWillUnmount(){
+        AndroidEventHandler.unsubscribe(this.subscription);
         document.removeEventListener("keydown",this.keyDown);
         window.removeEventListener('resize',this.checkSizes);
         if (this.state.interval){
@@ -256,6 +290,8 @@ class App extends React.Component {
         }
         const Dialogs = OverlayDialog.getDialogContainer;
         let appClass="app";
+        let layoutClass=(this.props.layoutName||"").replace(/[^0-9a-zA-Z]/g,'_');
+        appClass+=" "+layoutClass;
         if (this.props.smallDisplay) appClass+=" smallDisplay";
         return <div
             className={appClass}
@@ -297,5 +333,6 @@ export default   Dynamic(App,{
       fontSize: keys.properties.baseFontSize,
       smallDisplay: keys.gui.global.smallDisplay,
       nightMode: keys.properties.nightMode,
+      layoutName: keys.properties.layoutName
   }
 });

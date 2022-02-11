@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -25,17 +24,12 @@
 #  parts from this software (AIS decoding) are taken from the gpsd project
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
-
-import time
 import socket
-import threading
+from socketbase import *
 
-from avnav_util import *
+import avnav_handlerList
 from avnav_nmea import *
 from avnav_worker import *
-from socketreaderbase import *
-import avnav_handlerList
-
 
 
 #a Worker to read from a remote NMEA source via a socket
@@ -45,57 +39,124 @@ class AVNSocketReader(AVNWorker,SocketReader):
   @classmethod
   def getConfigName(cls):
     return "AVNSocketReader"
-  
+
+  P_WRITE_OUT = WorkerParameter('writeOut', False, type=WorkerParameter.T_BOOLEAN,
+                                description="if set also write data on this connection")
+  P_WRITE_FILTER = WorkerParameter('writeFilter', '', type=WorkerParameter.T_FILTER,
+                                   condition={P_WRITE_OUT.name: True})
+  P_BLACKLIST = WorkerParameter('blackList', '',
+                                description=', separated list of sources we do not send out',
+                                condition={P_WRITE_OUT.name: True})
   @classmethod
-  def getConfigParam(cls,child):
+  def getConfigParam(cls, child=None):
     if not child is None:
       return None
-    rt={
-               'feederName':'',      #if this one is set, we do not use the defaul feeder by this one
-               'host':None,
-               'port':None,
-               'timeout': 10,      #timeout for connect and waiting for data
-               'minTime':0,        #if tthis is set, wait this time before reading new data (ms)
-    }
+    rt=[
+               WorkerParameter('feederName','',editable=False),
+               WorkerParameter('host',None),
+               WorkerParameter('port',None,type=WorkerParameter.T_NUMBER),
+               WorkerParameter('timeout',10,type=WorkerParameter.T_FLOAT,
+                               description='timeout in sec for connecting and waiting for data, close connection if no data within 5*timeout'),
+               WorkerParameter('minTime',0,type=WorkerParameter.T_FLOAT,
+                               description='if this is set, wait this time before reading new data (ms)'),
+               WorkerParameter('filter','',type=WorkerParameter.T_FILTER),
+               cls.P_WRITE_OUT,
+               cls.P_WRITE_FILTER,
+               cls.P_BLACKLIST
+    ]
     return rt
+
+  @classmethod
+  def canEdit(cls):
+    return True
+
+  @classmethod
+  def canDeleteHandler(cls):
+    return True
 
   def __init__(self,param):
     for p in ('port','host'):
       if param.get(p) is None:
         raise Exception("missing "+p+" parameter for socket reader")
     self.feederWrite=None
+    self.socket=None
     AVNWorker.__init__(self, param)
 
 
-  def writeData(self,data,source):
+  def updateConfig(self, param,child=None):
+    super().updateConfig(param)
+    try:
+      self.socket.shutdown(socket.SHUT_RDWR)
+      self.socket.close()
+    except Exception as e:
+      pass
+
+  def stop(self):
+    super().stop()
+    try:
+      self.socket.shutdown(socket.SHUT_RDWR)
+      self.socket.close()
+    except:
+      pass
+
+  def writeData(self, data, source=None, **kwargs):
     AVNWorker.writeData(self,data,source)
     if (self.getIntParam('minTime')):
-      time.sleep(float(self.getIntParam('minTime'))/1000) 
+      time.sleep(float(self.getIntParam('minTime'))/1000)
      
   #thread run method - just try forever  
   def run(self):
-    self.setName("%s-%s:%d"%(self.getThreadPrefix(),self.getStringParam('host'),self.getIntParam('port')))
-    info="%s:%d"%(self.getStringParam('host'),self.getIntParam('port'))
+    self.version = 'development'
+    baseConfig = self.findHandlerByName('AVNConfig')
+    if baseConfig:
+      self.version = baseConfig.getVersion()
     errorReported=False
-    while True:
+    self.setNameIfEmpty("%s-%s:%d" % (self.getName(), self.getStringParam('host'), self.getIntParam('port')))
+    lastInfo = None
+    while not self.shouldStop():
+      info = "%s:%d" % (self.getStringParam('host'), self.getIntParam('port'))
       try:
-        self.setInfo('main',"trying to connect to %s"%(info,),AVNWorker.Status.INACTIVE)
-        sock=socket.create_connection((self.getStringParam('host'),self.getIntParam('port')), self.getIntParam('timeout'))
-        self.setInfo('main',"connected to %s"%(info,),AVNWorker.Status.RUNNING)
+        if info != lastInfo:
+          self.setInfo('main',"trying to connect to %s"%(info,),WorkerStatus.INACTIVE)
+          lastInfo=info
+        self.socket=socket.create_connection((self.getStringParam('host'),self.getIntParam('port')), self.getFloatParam('timeout'))
+        self.setInfo('main',"connected to %s"%(info,),WorkerStatus.RUNNING)
       except:
         if not errorReported:
           AVNLog.info("exception while trying to connect to %s %s",info,traceback.format_exc())
           errorReported=True
-        self.setInfo('main',"unable to connect to %s"%(info,),AVNWorker.Status.ERROR)
-        time.sleep(2)
+        self.setInfo('main',"unable to connect to %s"%(info,),WorkerStatus.ERROR)
+        self.wait(2)
         continue
       AVNLog.info("successfully connected to %s",info)
       try:
         errorReported=False
-        self.readSocket(sock,'main',self.getSourceName(info))
-        time.sleep(2)
+        timeout=self.getFloatParam('timeout')
+        if timeout != 0:
+          timeout = timeout *5
+        else:
+          timeout=None
+        connection = SocketReader(self.socket, self.writeData, self.feeder, self.setInfo, shouldStop=self.shouldStop)
+        if self.P_WRITE_OUT.fromDict(self.param):
+          clientHandler = threading.Thread(
+            target=self._writer,
+            args=(connection,),
+            name="%s-writer" % (self.getName())
+          )
+          clientHandler.daemon = True
+          clientHandler.start()
+        connection.readSocket('main', self.getSourceName(info), self.getParamValue('filter'), timeout=timeout)
+        self.wait(2)
       except:
         AVNLog.info("exception while reading from %s %s",info,traceback.format_exc())
+
+  def _writer(self, socketConnection):
+    infoName="writer"
+    socketConnection.writeSocket(infoName,
+                                 self.P_WRITE_FILTER.fromDict(self.param),
+                                 self.version,
+                                 blacklist=self.P_BLACKLIST.fromDict(self.param).split(','))
+    self.deleteInfo(infoName)
 avnav_handlerList.registerHandler(AVNSocketReader)
         
         

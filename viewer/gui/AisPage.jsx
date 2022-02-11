@@ -3,8 +3,6 @@
  */
 
 import Dynamic from '../hoc/Dynamic.jsx';
-import Visible from '../hoc/Visible.jsx';
-import Button from '../components/Button.jsx';
 import ItemList from '../components/ItemList.jsx';
 import globalStore from '../util/globalstore.jsx';
 import keys from '../util/keys.jsx';
@@ -12,7 +10,6 @@ import React from 'react';
 import PropertyHandler from '../util/propertyhandler.js';
 import history from '../util/history.js';
 import Page from '../components/Page.jsx';
-import Requests from '../util/requests.js';
 import AisFormatter from '../nav/aisformatter.jsx';
 import AisData from '../nav/aisdata.js';
 import assign from 'object-assign';
@@ -166,6 +163,8 @@ class AisPage extends React.Component{
             let cl=props.addClass;
             if (props.warning) cl+=" "+WARNING_CLASS;
             let aisInfoKey=1;
+            let clazz=fmt.format('clazz',props);
+            if (clazz !== '') clazz="["+clazz+"]";
             return ( <div className={"aisListItem "+cl} onClick={props.onClick}>
                     <div className="aisItemFB" style={style}>
                         <span className="fb1">{fb.substr(0,1)}</span>{fb.substr(1)}
@@ -173,7 +172,8 @@ class AisPage extends React.Component{
                     <div className="aisData">
                         <div className="aisData1">
                             {fmt.format('mmsi',props)}&nbsp;
-                            {fmt.format('shipname',props)}
+                            {fmt.format('shipname',props)}&nbsp;
+                            {clazz}
                         </div>
                         { aisInfos.map(function(info1){
                             aisInfoKey++;
@@ -223,7 +223,6 @@ class AisPage extends React.Component{
                 <AisList
                     itemClass={AisItem}
                     onItemClick={function (item) {
-                                    AisData.setTrackedTarget(item.mmsi);
                                     history.replace('aisinfopage', {mmsi: item.mmsi});
                                 }}
                     className="aisList"

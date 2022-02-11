@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -25,18 +24,17 @@
 #  parts from this software (AIS decoding) are taken from the gpsd project
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
-
 import json
 import time
 
 import avnav_handlerList
-from avnav_config import AVNConfig
+from avnav_manager import AVNHandlerManager
 from avnav_util import *
 from avnav_worker import *
 from wpa_control import WpaControl
 
 
-class FwInfo:
+class FwInfo(object):
   def __init__(self,ssid,mode,status):
     self.ssid=ssid
     self.mode=mode
@@ -74,13 +72,12 @@ class AVNWpaHandler(AVNWorker):
   def preventMultiInstance(cls):
     return True
   def run(self):
-    self.setName(self.getThreadPrefix())
     self.commandHandler = self.findHandlerByName("AVNCommandHandler")
     wpaSocket=self.getStringParam('wpaSocket')
     ownSocket=self.getStringParam('ownSocket')
     watcherThread=threading.Thread(target=self.allowDenyWatcher,name="firewallWatcher")
     watcherThread.start()
-    while True:
+    while not self.shouldStop():
       try:
         newWpaSocket=self.getStringParam('wpaSocket')
         if newWpaSocket != wpaSocket:
@@ -94,7 +91,7 @@ class AVNWpaHandler(AVNWorker):
             AVNLog.info("connecting to wpa_supplicant %s",wpaSocket)
             self.wpaHandler=WpaControl(wpaSocket,ownSocket)
             self.wpaHandler.open()
-            self.setInfo('main','connected to %s'%(wpaSocket),AVNWorker.Status.STARTED)
+            self.setInfo('main','connected to %s'%(wpaSocket),WorkerStatus.STARTED)
           else:
             try:
               self.wpaHandler.checkOpen()
@@ -107,7 +104,7 @@ class AVNWpaHandler(AVNWorker):
             self.wpaHandler.close(False)
             self.wpaHandler=None
             AVNLog.info("disconnecting from wpa_supplicant %s",wpaSocket)
-            self.setInfo('main','disconnected from %s'%(wpaSocket),AVNWorker.Status.INACTIVE)
+            self.setInfo('main','disconnected from %s'%(wpaSocket),WorkerStatus.INACTIVE)
           time.sleep(5)
           continue
         #we should have an active wpa handler here...
@@ -126,13 +123,13 @@ class AVNWpaHandler(AVNWorker):
     statusName="FwHandler"
     cmd=self.getStringParam(self.P_FWCOMMAND)
     if cmd is None or cmd == "":
-      self.setInfo(statusName, "no  command", AVNWorker.Status.INACTIVE)
+      self.setInfo(statusName, "no  command", WorkerStatus.INACTIVE)
       return
     cmdparam=cmd.split(" ")
     command=[]
     for par in cmdparam:
-      command.append(AVNUtil.replaceParam(par, AVNConfig.filterBaseParam(self.getParam())))
-    self.setInfo(statusName,"running",AVNWorker.Status.NMEA)
+      command.append(AVNUtil.replaceParam(par, AVNHandlerManager.filterBaseParam(self.getParam())))
+    self.setInfo(statusName,"running",WorkerStatus.NMEA)
     lastNet=None
     lastMode=None
     lastResult=-1
@@ -160,9 +157,9 @@ class AVNWpaHandler(AVNWorker):
               if lastResult is None:
                 lastResult=-1
               AVNLog.error("%s: unable to run firewall command on %s for mode %s, return %d"%(statusName,ssid,mode,lastResult))
-              self.setInfo(statusName,"unable to run firewall command on %s for %s, return %d"%(ssid,mode,lastResult),AVNWorker.Status.ERROR)
+              self.setInfo(statusName,"unable to run firewall command on %s for %s, return %d"%(ssid,mode,lastResult),WorkerStatus.ERROR)
             else:
-              self.setInfo(statusName, "firewall command on %s for %s ok" % (ssid,mode), AVNWorker.Status.NMEA)
+              self.setInfo(statusName, "firewall command on %s for %s ok" % (ssid,mode), WorkerStatus.NMEA)
               lastSuccess=AVNUtil.utcnow()
             self.lastFwInfo=FwInfo(ssid,mode,lastResult)
       except:

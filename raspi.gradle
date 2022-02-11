@@ -7,7 +7,7 @@ buildscript{
 		mavenCentral()
 	}
     dependencies{
-        classpath 'com.netflix.nebula:gradle-ospackage-plugin:7.5.0'
+        classpath 'com.netflix.nebula:gradle-ospackage-plugin:8.5.6'
     }
 }
 
@@ -33,6 +33,8 @@ ospackage {
     requires 'dnsmasq'
     requires 'mpg123'
     requires 'ntp'
+    requires 'avahi-autoipd'
+    requires 'python3-smbus' //could basically also directly go to avnav - but outside rpi there is no use case
     packageName='avnav-raspi'
     ['common','wlan0','wlan1','wlan-ap','wlan-ap2'].each { String ext->
         configurationFile("/etc/hostapd/hostapd.conf.$ext")
@@ -42,22 +44,28 @@ ospackage {
     into ('/usr/lib/avnav/raspberry') {
         from('raspberry'){
             fileMode 0755
-            include 'check_wlan'
             include 'hostapd'
             include 'settime.sh'
-            include 'shutdown.sh'
             include 'restore-iptables.sh'
             include 'sound.sh'
-            include 'check-wlan-av1.pl'
             include 'iptables-ext.sh'
             include 'wpa_supplicant.conf'
+            include 'startup-check.sh'
+            include 'setup-mcs.sh'
+            include 'wpa_action.sh'
+            include 'rename-interface.sh'
+            include 'checkLink.sh'
         }
         from('raspberry') {
             include 'avnav_server.xml'
             include 'hosts'
             include 'ntp.conf'
+            include 'avnav.conf'
             fileMode 0644
         }
+    }
+    into('/usr/lib/avnav/raspberry/xui'){
+        from('raspberry/xui')
     }
     into ('/usr/lib/avnav/raspberry') {
         from(project.buildDir){
@@ -71,14 +79,15 @@ ospackage {
     }
     into('/usr/lib/systemd/system'){
         from('raspberry'){
-            include('avnav-check-wlan.service')
             include('avnav-iptables.service')
+            include('avnav-startup.service')
         }
     }
     into('/etc/network/interfaces.d'){
         from('raspberry'){
             include('lo')
             include('eth0')
+            include('usb0')
             include('wlan0')
             include('wlan1')
             include('wlan-av1')
@@ -121,12 +130,7 @@ ospackage {
             include('8192cu.conf')
         }
     }
-    into('/etc/avahi/services'){
-        from('raspberry'){
-            include('avnav-avahi.service')
-        }
-    }
-
+    
     postInstall file('raspberry/postinstall')
     preInstall file('raspberry/preinstall')
 

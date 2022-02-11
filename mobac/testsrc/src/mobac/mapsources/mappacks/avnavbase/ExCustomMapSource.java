@@ -13,15 +13,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 import javax.imageio.ImageIO;
-import javax.xml.bind.Unmarshaller;
-import javax.xml.bind.annotation.XmlElement;
-import javax.xml.bind.annotation.XmlElementWrapper;
-import javax.xml.bind.annotation.XmlElements;
-import javax.xml.bind.annotation.XmlList;
-import javax.xml.bind.annotation.XmlRootElement;
-import javax.xml.bind.annotation.XmlTransient;
-import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 
+
+import jakarta.xml.bind.Unmarshaller;
+import jakarta.xml.bind.annotation.*;
+import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import org.apache.log4j.Logger;
 
 import mobac.exceptions.UnrecoverableDownloadException;
@@ -42,14 +38,8 @@ import mobac.program.tilestore.TileStoreEntry;
 public class ExCustomMapSource implements HttpMapSource {
 	private Logger log = Logger.getLogger(ExCustomMapSource.class);
 	
-	private HashMap<Integer, Integer> converterMap=new HashMap<Integer, Integer>();
-	void initConverter(HashMap<Color, Color> cconvert){
-		for (Color k: cconvert.keySet()){
-			this.converterMap.put(k.getRGB()&0xffffff,cconvert.get(k).getRGB()&0xffffff);
-		}
-	}
-	
-	
+	private HashMap<Integer, Color> converterMap=new HashMap<Integer, Color>();
+
 	public static class ColorMapping{
 		@XmlJavaTypeAdapter(ColorAdapter.class)
 		public Color in;
@@ -130,11 +120,10 @@ public class ExCustomMapSource implements HttpMapSource {
 	
 	
 	protected void afterUnmarshal(Unmarshaller u, Object parent) {
-		HashMap<Color, Color> cvmap=new HashMap<Color, Color>();
 		for(ColorMapping c: colormappings){
-			cvmap.put(c.in, c.out);
 			log.debug("adding color mapping from "+c.in+" to "+c.out);
-			initConverter(cvmap);
+			converterMap.put(c.in.getRGB()&0xffffff,
+					c.out);
 		}
 		if (tileType == null){
 			throw new RuntimeException("invalid tileType - null");
@@ -309,18 +298,32 @@ public class ExCustomMapSource implements HttpMapSource {
             	if (val == lastin){
             		if (val == lastout) continue;
             		val = lastout;
-            		image.setRGB(xx, yy, pix&0xff000000 | val);
+            		if ((lastout & 0xff000000) == 0xff000000) {
+            			//no alpha
+						image.setRGB(xx, yy, pix & 0xff000000 | val);
+					}
+					else{
+						//alpha
+						image.setRGB(xx, yy, val);
+					}
             		continue;
             	}
             	lastin=val;
-            	Integer ov=converterMap.get(new Integer(val));
+            	Color ov=converterMap.get(val);
             	if (ov == null){
             		lastout=val;
             		continue;
             	}
-            	val=ov.intValue()&0xffffff;
-            	lastout=val;
-            	image.setRGB(xx, yy, pix&0xff000000|val);
+				lastout=ov.getRGB();
+            	if (ov.getAlpha() == 255){
+            		//no alpha
+					image.setRGB(xx, yy, pix&0xff000000| lastout & 0xffffff);
+				}
+				else{
+					//take alpha from conversion
+					image.setRGB(xx, yy, lastout);
+				}
+
             }
         }
         return hasAlpha0;

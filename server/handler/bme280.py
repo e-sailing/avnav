@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013-2017 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2013-2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -29,12 +28,7 @@
 #
 ###############################################################################
 
-import time
-import threading
-
 from ctypes import c_short
-from ctypes import c_byte
-from ctypes import c_ubyte
 
 hasBME280=False
 try:
@@ -43,7 +37,6 @@ try:
 except:
   pass
 
-from avnav_util import *
 from avnav_nmea import *
 from avnav_worker import *
 import avnav_handlerList
@@ -135,7 +128,7 @@ def readBME280All(addr):
 
   # Wait in ms (Datasheet Appendix B: Measurement time and current calculation)
   wait_time = 1.25 + (2.3 * OVERSAMPLE_TEMP) + ((2.3 * OVERSAMPLE_PRES) + 0.575) + ((2.3 * OVERSAMPLE_HUM)+0.575)
-  time.sleep(wait_time/1000)  # Wait the required time  
+  time.sleep(wait_time/1000)  # Wait the required time
 
   # Read temperature/pressure/humidity
   data = bus.read_i2c_block_data(addr, REG_DATA, 8)
@@ -190,20 +183,44 @@ class AVNBME280Reader(AVNWorker):
   def getConfigParam(cls, child=None):
     if not child is None:
       return None
-    rt = {
-      'feederName': '',  # if this one is set, we do not use the defaul feeder but this one
-      'interval': '5',
-      'writeMda': 'true',
-      'writeXdr': 'true',
-      'addr'    : '0x77'
-    }
+    rt = [
+      WorkerParameter('feederName', '',editable=False),  # if this one is set, we do not use the defaul feeder but this one
+      WorkerParameter('interval', '5',
+                      type=WorkerParameter.T_FLOAT,
+                      description="interval in seconds between measures"),
+      WorkerParameter('writeMda', True,
+                      type=WorkerParameter.T_BOOLEAN,
+                      description="write MDA records"),
+      WorkerParameter('writeXdr', True,
+                      type=WorkerParameter.T_BOOLEAN,
+                      description="write XDR records"),
+      WorkerParameter('namePress','Barometer',
+                      description="XDR transducer name for pressure"),
+      WorkerParameter('nameHumid','Humidity',
+                      description="XDR transducer name for humidity"),
+      WorkerParameter('nameTemp', 'TempAir',
+                      description="XDR transducer name for temperature"),
+      WorkerParameter('addr' ,'0x77',
+                      description='I2C address for the BME in 0xnn notation')
+    ]
     return rt
 
+  @classmethod
+  def canEdit(cls):
+    return hasBME280
+
+  @classmethod
+  def canDeleteHandler(cls):
+    return hasBME280
+
+  @classmethod
+  def canDisable(cls):
+    return True
 
   def isDisabled(self):
     if not hasBME280:
       return True
-    return super(AVNBME280Reader, self).isDisabled()
+    return super().isDisabled()
 
 
 
@@ -211,16 +228,18 @@ class AVNBME280Reader(AVNWorker):
   def run(self):
     global bus
     if hasBME280:
-      # BME280DEVICE = 0x77 # Default device I2C Address
-      bus = smbus.SMBus(1)  # Rev 2 Pi, Pi 2 & Pi 3 uses bus 1
-    self.setName(self.getThreadPrefix())
-    self.setInfo('main', "reading BME280", AVNWorker.Status.NMEA)
-    addr = int(self.getStringParam('addr'),16)
-    (chip_id, chip_version) = readBME280ID(addr)
-    info = "Using BME280 Chip: %d Version: %d" % (chip_id, chip_version)
-    AVNLog.info(info)
-    source=self.getSourceName(addr)
+      try:
+        # BME280DEVICE = 0x77 # Default device I2C Address
+        bus = smbus.SMBus(1)  # Rev 2 Pi, Pi 2 & Pi 3 uses bus 1
+      except Exception as e:
+        raise Exception("unable to get smbus #1: %s" % str(e))
+    self.setInfo('main', "reading BME280", WorkerStatus.NMEA)
     while True:
+      addr = int(self.getStringParam('addr'), 16)
+      (chip_id, chip_version) = readBME280ID(addr)
+      info = "Using BME280 Chip: %d Version: %d" % (chip_id, chip_version)
+      AVNLog.info(info)
+      source = self.getSourceName(addr)
       try:
         temperature,pressure,humidity = readBME280All(addr)
         if self.getBoolParam('writeMda'):
@@ -233,15 +252,16 @@ class AVNBME280Reader(AVNWorker):
           AVNLog.debug("BME280:MTA %s", mta)
           self.writeData(mta,source,addCheckSum=True)
         if self.getBoolParam('writeXdr'):
-          xdr = '$AVXDR,P,%.5f,B,Barometer' % (pressure / 1000.)
+          tn=self.param.get('namePress','Barometer')
+          xdr = '$AVXDR,P,%.5f,B,%s' % (pressure / 1000.,tn)
           AVNLog.debug("BME280:XDR %s", xdr)
           self.writeData(xdr,source,addCheckSum=True)
-
-          xdr = '$AVXDR,C,%.2f,C,TempAir' % (temperature)
+          tn = self.param.get('nameTemp', 'TempAir')
+          xdr = '$AVXDR,C,%.2f,C,%s' % (temperature,tn)
           AVNLog.debug("BME280:XDR %s", xdr)
           self.writeData(xdr,source,addCheckSum=True)
-
-          xdr = '$AVXDR,H,%.2f,P,Humidity' % (humidity)
+          tn = self.param.get('nameHumid', 'Humidity')
+          xdr = '$AVXDR,H,%.2f,P,%s' % (humidity,tn)
           AVNLog.debug("BME280:XDR %s", xdr)
           self.writeData(xdr,source,addCheckSum=True)
 
@@ -250,7 +270,7 @@ class AVNBME280Reader(AVNWorker):
       wt = self.getFloatParam("interval")
       if not wt:
         wt = 5.0
-      time.sleep(wt)
+      self.wait(wt)
 
 
 avnav_handlerList.registerHandler(AVNBME280Reader)

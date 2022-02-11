@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # 2011-01-27 11:38:30 
@@ -39,7 +39,7 @@ from tiler_functions import *
 pcx_tile_w=640
 pcx_tile_h=480
 
-class MergeSet:
+class MergeSet(object):
     def __init__(self,src_lst,dest_dir):
         self.src_lst=src_lst
         self.dest_dir=dest_dir

@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -25,65 +24,93 @@
 #  parts from this software (AIS decoding) are taken from the gpsd project
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
-from threading import Thread
-
-import time
 import socket
-import threading
 
-from avnav_util import *
+from avnavavahi import AVNAvahi
+from socketbase import *
+
+import avnav_handlerList
 from avnav_nmea import *
 from avnav_worker import *
-from avnav_nmea import *
-from socketreaderbase import *
-import avnav_handlerList
+
 
 #a worker to output data via a socket
 
-class AVNSocketWriter(AVNWorker,SocketReader):
+class AVNSocketWriter(AVNWorker):
   @classmethod
   def getConfigName(cls):
     return "AVNSocketWriter"
-  
+
+  AVAHI_ENABLED=WorkerParameter('avahiEnabled',False,description='If set make this port available via Mdns (Bonjour/Avahi)',type=WorkerParameter.T_BOOLEAN)
+  AVAHI_NAME=WorkerParameter('avahiName','avnav-server',description='Name for this connection when anncounced via Mdns (Bonjour/Avahi)',
+                             condition={AVAHI_ENABLED.name:True})
   @classmethod
   def getConfigParam(cls, child=None):
     if child is None:
       
-      rt={
-          'port': None,       #local listener port
-          'maxDevices':5,     #max external connections
-          'feederName':'',    #if set, use this feeder
-          'filter': '',       #, separated list of sentences either !AIVDM or $RMC - for $ we ignore the 1st 2 characters
-          'address':'',       #the local bind address
-          'read': True,       #allow for reading data
-          'readerFilter':'',
-          'minTime':50,         #if this is set, wait this time before reading new data (ms)
-          'blackList':''      #, separated list of sources we do not send out
-          }
+      rt=[
+          WorkerParameter('port',None,type=WorkerParameter.T_NUMBER,
+                          description='local listener port'),
+          WorkerParameter('maxDevices',5,type=WorkerParameter.T_NUMBER,
+                          description='max external connections'),
+          WorkerParameter('feederName','',editable=False),
+          WorkerParameter('filter','',type=WorkerParameter.T_FILTER,
+                          description=', separated list of sentences either !AIVDM or $RMC - for $ we ignore the 1st 2 characters'),
+          WorkerParameter('address','0.0.0.0',type=WorkerParameter.T_STRING,
+                          description='the local bind address (0.0.0.0 for external access)'),
+          WorkerParameter('read',True,type=WorkerParameter.T_BOOLEAN,
+                          description='allow for also reading data from connected devices'),
+          WorkerParameter('readerFilter','',type=WorkerParameter.T_FILTER,
+                          description='NMEA filter for incoming data',
+                          condition={'read':True}),
+          WorkerParameter('minTime',50,type=WorkerParameter.T_FLOAT,
+                          description='if this is set, wait this time before reading new data (ms)'),
+          WorkerParameter('blackList','',description=', separated list of sources we do not send out'),
+          cls.AVAHI_ENABLED,
+          cls.AVAHI_NAME
+          ]
       return rt
     return None
 
+  @classmethod
+  def canEdit(cls):
+    return True
+
+  @classmethod
+  def canDeleteHandler(cls):
+    return True
   
   def __init__(self,cfgparam):
     AVNWorker.__init__(self, cfgparam)
-    self.readFilter=None
-    self.blackList=self.getStringParam('blackList').split(',')
-    self.blackList.append(self.getSourceName())
+    self.blackList=[]
+    self.listener=None
+    self.addrmap = {}
+    self.maplock = threading.Lock()
+    self.startSequence=0
 
-  
-  #make some checks when we have to start
-  #we cannot do this on init as we potentially have to find the feeder...
-  def start(self):
-    feeder=self.findFeeder(self.getStringParam('feederName'))
-    if feeder is None:
-      raise Exception("%s: cannot find a suitable feeder (name %s)",self.getName(),self.getStringParam("feederName") or "")
-    self.feeder=feeder
-    self.feederWrite=feeder.addNMEA
-    self.maplock=threading.Lock()
-    self.addrmap={}
-    AVNWorker.start(self) 
-   
-  #return True if added
+  def startInstance(self, navdata):
+    self.startSequence+=1
+    self.version='development'
+    baseConfig=self.findHandlerByName('AVNConfig')
+    if baseConfig:
+      self.version=baseConfig.getVersion()
+    super().startInstance(navdata)
+
+
+  def sequenceChanged(self,seq):
+    '''
+    used by client threads to check for restart
+    @param seq:
+    @return:
+    '''
+    return self.startSequence != seq
+
+
+  def updateConfig(self, param,child=None):
+    super().updateConfig(param)
+    self._closeSockets()
+
+
   def checkAndAddHandler(self,addr,handler):
     rt=False
     maxd=self.getIntParam('maxDevices')
@@ -109,103 +136,158 @@ class AVNSocketWriter(AVNWorker,SocketReader):
   
 
   #the writer for a connected client
-  def client(self,socket,addr):
-    infoName="SocketWriter-%s"%(unicode(addr),)
-    self.setName("%s-Writer %s"%(self.getThreadPrefix(),unicode(addr)))
-    self.setInfo(infoName,"sending data",AVNWorker.Status.RUNNING)
+  def client(self, socketConnection, addr, startSequence):
+    clientConnection=SocketReader(socketConnection,self.writeData,self.feeder,self.setInfo)
+    infoName="SocketWriter-%s"%(str(addr),)
+    self.setInfo(infoName,"sending data",WorkerStatus.RUNNING)
     if self.getBoolParam('read',False):
-      clientHandler=threading.Thread(target=self.clientRead,args=(socket, addr))
+      clientHandler=threading.Thread(
+        target=self.clientRead,
+        args=(clientConnection, addr, startSequence),
+        name="%s-clientread-%s"%(self.getName(),str(addr))
+      )
       clientHandler.daemon=True
       clientHandler.start()
     filterstr=self.getStringParam('filter')
-    filter=None
-    if filterstr != "":
-      filter=filterstr.split(',')
-    try:
-      seq=0
-      socket.sendall("avnav_server %s\r\n"%(VERSION))
-      while True:
-        hasSend=False
-        seq,data=self.feeder.fetchFromHistory(seq,10,nmeafilter=filter,includeSource=True)
-        if len(data)>0:
-          for line in data:
-            if line.source in self.blackList:
-              AVNLog.debug("ignore %s:%s due to blacklist",line.source,line.data)
-            else:
-              socket.sendall(line.data)
-              hasSend=True
-        if not hasSend:
-          #just throw an exception if the reader potentially closed the socket
-          socket.getpeername()
-    except Exception as e:
-      AVNLog.info("exception in client connection %s",traceback.format_exc())
-    AVNLog.info("client disconnected")
-    socket.close()
+    clientConnection.writeSocket(infoName,filterstr,self.version,self.blackList)
     self.removeHandler(addr)
     self.deleteInfo(infoName)
 
-  def clientRead(self,socket,addr):
-    infoName="SocketReader-%s"%(unicode(addr),)
-    threading.currentThread().setName("%s-Reader-%s"%(self.getThreadPrefix(),unicode(addr)))
+  def clientRead(self,connection,addr,startSequence):
+    infoName="SocketReader-%s"%(str(addr),)
+    threading.currentThread().setName("%s-Reader-%s"%(self.getName(),str(addr)))
     #on each newly connected socket we recompute the filter
     filterstr=self.getStringParam('readerFilter')
-    filter=None
-    if filterstr != "":
-      filter=filterstr.split(',')
-    self.readFilter=filter
-    self.readSocket(socket,infoName,self.getSourceName())
+    connection.readSocket(infoName,self.getSourceName(),filterstr)
     self.deleteInfo(infoName)
 
-  #if we have writing enabled...
+  #if we have reading enabled...
   def writeData(self,data,source=None):
-    doFeed=True
-    if self.readFilter is not None:
-      if not NMEAParser.checkFilter(data,self.readFilter):
-        doFeed=False
-        AVNLog.debug("ingoring line %s due to filter",data)
-    if doFeed:
-      self.feederWrite(data,source)
+    super().writeData(data,source)
     if (self.getIntParam('minTime')):
       time.sleep(float(self.getIntParam('minTime'))/1000)
-        
+
+
+  def _closeSockets(self):
+    AVNLog.info("closing all sockets")
+    self.startSequence+=1
+    try:
+      self.listener.shutdown(socket.SHUT_RDWR)
+    except Exception as e:
+      AVNLog.error("unable to shutdown listener: %s",str(e))
+    try:
+      self.listener.close()
+    except Exception as e:
+      AVNLog.error("unable to close listener: %s",str(e))
+    self.maplock.acquire()
+    try:
+      for k,v in self.addrmap.items():
+        try:
+          v.shutdown(socket.SHUT_RDWR)
+          v.close()
+        except:
+          pass
+    finally:
+      self.maplock.release()
+
+  def stop(self):
+    super().stop()
+    self._closeSockets()
+
+  def getResourceFromName(self,avahiName):
+    if avahiName is None or avahiName == '':
+      return None
+    return avahiName+"."+AVNUtil.NMEA_SERVICE
+  def checkConfig(self, param):
+    if 'port' in param:
+      self.checkUsedResource(UsedResource.T_TCP,param.get('port'))
+    if ( self.AVAHI_ENABLED.name in param and self.AVAHI_ENABLED.fromDict(param,True)) or \
+        ( self.AVAHI_ENABLED.name not in param and self.AVAHI_ENABLED.fromDict(self.param,True)):
+      avahiName=None
+      if self.AVAHI_NAME.name in param:
+        avahiName=self.AVAHI_NAME.fromDict(param)
+      else:
+        avahiName=self.AVAHI_NAME.fromDict(self.param)
+      if avahiName is None or avahiName == '':
+        raise ValueError("%s cannot be empty with %s enabled"%(self.AVAHI_NAME.name,self.AVAHI_ENABLED.name))
+      self.checkUsedResource(UsedResource.T_SERVICE,self.getResourceFromName(avahiName))
+
+  def registerAvahi(self):
+    avahi=self.findHandlerByName(AVNAvahi.getConfigName())
+    if avahi is None:
+      return
+    if self.AVAHI_ENABLED.fromDict(self.param):
+      serviceName=self.AVAHI_NAME.fromDict(self.param)
+      if serviceName is not None and avahi is not None:
+        try:
+          avahi.registerService(self.getId(),AVNUtil.NMEA_SERVICE,serviceName,self.getIntParam('port'))
+        except:
+          pass
+
   #this is the main thread - listener
   def run(self):
-    self.setName("%s-listen"%(self.getThreadPrefix()))
-    time.sleep(2) # give a chance to have the feeder socket open...   
-    #now start an endless loop with udev discovery...
-    #any removal will be detected by the monitor (to be fast)
-    #but we have an audit here anyway
-    #the removal will be robust enough to deal with 2 parallel tries
+    self.wait(2)
     init=True
-    listener=None
-    while True:
+    self.listener=None
+    avahi=self.findHandlerByName(AVNAvahi.getConfigName())
+    while not self.shouldStop():
+      self.freeAllUsedResources()
+      self.claimUsedResource(UsedResource.T_TCP,self.getParamValue('port'))
+      if avahi is not None:
+        avahi.unregisterService(self.getId())
+      if self.AVAHI_ENABLED.fromDict(self.param):
+        self.claimUsedResource(UsedResource.T_SERVICE,self.getResourceFromName(self.AVAHI_NAME.fromDict(self.param)))
+      self.setNameIfEmpty("%s-%s"%(self.getName(),str(self.getParamValue('port'))))
+      self.blackList = self.getStringParam('blackList').split(',')
+      self.blackList.append(self.getSourceName())
       try:
-        listener=socket.socket()
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind((self.getStringParam('address'),self.getIntParam('port')))
-        listener.listen(1)
-        AVNLog.info("listening at port address %s",unicode(listener.getsockname()))
-        self.setInfo('main', "listening at %s"%(unicode(listener.getsockname()),), AVNWorker.Status.RUNNING)
-        while True:
-          outsock,addr=listener.accept()
-          AVNLog.info("connect from %s",unicode(addr))
+        try:
+          self.listener=socket.socket()
+          self.listener.settimeout(0.5)
+          self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          self.listener.bind((self.getStringParam('address'),self.getIntParam('port')))
+          self.listener.listen(1)
+          AVNLog.info("listening at port address %s",str(self.listener.getsockname()))
+          self.setInfo('main', "listening at %s"%(str(self.listener.getsockname()),), WorkerStatus.RUNNING)
+        except Exception as e:
+          self.setInfo('main','unable to create listener at port %s:%s'
+                       %(str(self.getIntParam('port')),str(e)),WorkerStatus.ERROR)
+          raise
+        while not self.shouldStop() and self.listener.fileno() >= 0:
+          self.registerAvahi() #we redo this all the time as potentially the avahi handler has stopped/restarted
+          try:
+            outsock,addr=self.listener.accept()
+          except socket.timeout:
+            continue
+          AVNLog.info("connect from %s",str(addr))
+          outsock.settimeout(None)
           allowAccept=self.checkAndAddHandler(addr,outsock)
           if allowAccept:
-            clientHandler=threading.Thread(target=self.client,args=(outsock, addr))
+            clientHandler=threading.Thread(
+              target=self.client,
+              args=(outsock, addr,self.startSequence),
+              name=("%s-client-%s"%(self.getName(),str(addr)))
+            )
             clientHandler.daemon=True
             clientHandler.start()
           else:
-            AVNLog.error("connection from %s not allowed", unicode(addr))
+            AVNLog.error("connection from %s not allowed", str(addr))
             try:
+              outsock.shutdown(socket.SHUT_RDWR)
               outsock.close()
             except:
               pass
       except Exception as e:
         AVNLog.warn("exception on listener, retrying %s",traceback.format_exc())
         try:
-          listener.close()
+          self.listener.close()
         except:
           pass
-        break
+        if self.shouldStop():
+          break
+        self.wait(5)
+    AVNLog.info("main stopped")
+    if avahi is not None:
+      avahi.registerService(self.getId(),None,None,None)
 avnav_handlerList.registerHandler(AVNSocketWriter)
   

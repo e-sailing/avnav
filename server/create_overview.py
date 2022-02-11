@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 
@@ -29,6 +29,7 @@
 #  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 #  DEALINGS IN THE SOFTWARE.
 ###############################################################################
+
 import os
 import sys
 import xml.sax as sax
@@ -98,11 +99,11 @@ options=None
 upzoom=1 #how many additional layers to be created for a single source gemf file
 
 def log(s):
-  print "LOG: %s"%(s,)
+  print("LOG: %s"%(s,))
 
 def debug(num,txt):
   if (num <= options.verbose):
-    print "DEBUG %s"%(txt,)
+    print("DEBUG %s"%(txt,))
     
 #convert tile numbers to lat/lon
 #see:http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#X_and_Y
@@ -114,7 +115,7 @@ def num2deg(xtile, ytile, zoom):
   lat_deg = math.degrees(lat_rad)
   return (lat_deg, lon_deg)
 
-class Tileset():
+class Tileset(object):
   def __init__(self,name,zoom,minx,miny,maxx,maxy):
     self.name=name
     self.zoom=zoom
@@ -124,7 +125,7 @@ class Tileset():
     self.maxy=maxy
 
 
-class Tilegroup():
+class Tilegroup(object):
   def __init__(self,name):
     self.elements=[]
     self.name=name
@@ -152,7 +153,7 @@ class Tilegroup():
     return rt
       
 
-class Layer():
+class Layer(object):
   def __init__(self,name,minzoom,maxzoom,baseurl=""):
     self.tlist=[]
     self.minzoom=minzoom
@@ -243,10 +244,10 @@ class ListHandler(sax.handler.ContentHandler):
       minta=mintile.split('/')
       assert len(maxta) == 2, "invalid format for maxTile %s"%(maxtile,)
       assert len(minta) == 2, "invalid format for minTile %s"%(mintile,)
-      maxx=int(maxta[0])/256
-      maxy=int(maxta[1])/256
-      minx=int(minta[0])/256
-      miny=int(minta[1])/256
+      maxx=int(maxta[0])//256
+      maxy=int(maxta[1])//256
+      minx=int(minta[0])//256
+      miny=int(minta[1])//256
       self.currentGroup.addElement(Tileset(attrs['name'], zoom, minx, miny, maxx, maxy))
   def endElement(self, name):
     if name == "Layer":
@@ -274,7 +275,7 @@ class ListHandler(sax.handler.ContentHandler):
 def createTileMapForLayer(layer,name,zOffset,tileSize,zoomBoundings):
   layerBoundings=""
   if zoomBoundings is not None:
-    for z in zoomBoundings.keys():
+    for z in list(zoomBoundings.keys()):
       zoomBoundingsString=""
       for e in zoomBoundings[z]:
         zoomBoundingsString+=zoom_boundings_entry % e
@@ -328,7 +329,7 @@ def createOverviewSingleLayer(layer,zoomBoundings,options):
   
 def writeOverview(overviewfname,layerlist):
   overviewstr=createOverview(layerlist,None)
-  with open(overviewfname,"w") as f:
+  with open(overviewfname,"w",encoding='utf-8') as f:
     f.write(overviewstr)
   log(overviewfname+" written, successfully finished")
 

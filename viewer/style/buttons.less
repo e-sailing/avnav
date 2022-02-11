@@ -136,6 +136,9 @@ button{
   &.Edit {
     .iconButton('ic_edit.svg');
   }
+  &.Help {
+    .iconButton('ic_help_outline.svg');
+  }
 
   &.ZoomIn {
     .iconButton('ic_zoom_in.svg');
@@ -226,6 +229,9 @@ button{
   &.NavOverlays{
     .iconButton('layers-black.svg');
   }
+  &.Measure{
+    .iconButton('straighten.svg');
+  }
 
   &.ShowStatus {
     .iconButton('status.svg');
@@ -303,11 +309,26 @@ button{
   &.StatusAndroid{
     .iconButton('ic_android.svg');
   }
+  &.AndroidBrowser{
+    .iconButton('internet-web-browser.svg');
+  }
   &.StatusAddresses{
     .iconButton('qrcode.svg');
   }
   &.StatusShutdown{
     .iconButton('ic_power.svg');
+  }
+  &.StatusAdd{
+    .iconButton('ic_add.svg');
+  }
+  &.StatusLog{
+    .iconButton('ic_text_snippet.svg');
+  }
+  &.StatusDebug{
+    .iconButton('bug_report.svg');
+  }
+  &.StatusRestart{
+    .iconButton('ic_refresh.svg');
   }
   &.RoutePageOk{
     .iconButton('ic_done.svg');
@@ -448,6 +469,9 @@ button{
   &.download{
     .dialogIconButton('ic_file_download.svg');
   }
+  &.log{
+    .dialogIconButton('ic_text_snippet.svg');
+  }
   .fileDialog &.view{
     .dialogIconButton('visibility.svg');
   }
@@ -541,8 +565,26 @@ button{
   .EditRouteDialog &.empty{
     .dialogIconButton('delete_sweep.svg');
   }
+  .EditRouteDialog &.load{
+    .dialogIconButton('save.svg');
+  }
   .EditRouteDialog &.invert{
     .dialogIconButton('invertroute.svg');
   }
+  &.reload{
+    .dialogIconButton('ic_refresh.svg');
+  }
 
+  .LockDialog &.current{
+    .dialogIconButton('boat.svg')
+  }
+  .LockDialog &.center{
+    .dialogIconButton('center.svg')
+  }
+  .AnchorWatchDialog &.center{
+    .dialogIconButton('center.svg')
+  }
+  .AnchorWatchDialog &.boat{
+    .dialogIconButton('boat.svg')
+  }
 }

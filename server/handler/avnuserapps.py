@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013-2020 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2013-2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -28,6 +27,7 @@
 #  parts contributed by Matt Hawkins http://www.raspberrypi-spy.co.uk/
 #
 ###############################################################################
+
 import hashlib
 
 import avnav_handlerList
@@ -71,10 +71,7 @@ class AVNUserAppHandler(AVNWorker):
     return True
   @classmethod
   def autoInstantiate(cls):
-    return """
-      <%s>
-  	  </%s>
-      """ % (cls.getConfigName(), cls.getConfigName())
+    return True
 
   def __init__(self,param):
     self.userHandler=None   # AVNUserHandler
@@ -84,7 +81,7 @@ class AVNUserAppHandler(AVNWorker):
     self.additionalAddOns=[]
     AVNWorker.__init__(self,param)
 
-  def start(self):
+  def startInstance(self, navdata):
     self.userHandler=self.findHandlerByName('AVNUserHandler')
     if self.userHandler is None:
       raise Exception("unable to find a user handler")
@@ -94,16 +91,15 @@ class AVNUserAppHandler(AVNWorker):
     self.httpServer = self.findHandlerByName('AVNHttpServer')
     if self.httpServer is None:
       raise Exception("unable to find AVNHttpServer")
-    AVNWorker.start(self)
+    super().startInstance(navdata)
 
   # thread run method - just try forever
   def run(self):
-    self.setName(self.getThreadPrefix())
     sleepTime=self.getFloatParam('interval')
-    self.setInfo('main', "starting", AVNWorker.Status.STARTED)
+    self.setInfo('main', "starting", WorkerStatus.STARTED)
     self.fillList()
-    while True:
-      time.sleep(sleepTime)
+    while not self.shouldStop():
+      self.wait(sleepTime)
 
 
   def computeKey(self,entry):
@@ -179,7 +175,7 @@ class AVNUserAppHandler(AVNWorker):
           AVNLog.error("icon path %s for %s not found, ignoring entry", icon, addon['url'])
           addon['invalid'] = True
     self.addonList=data
-    self.setInfo('main', "active, %d addons"%len(data), AVNWorker.Status.NMEA)
+    self.setInfo('main', "active, %d addons"%len(data), WorkerStatus.NMEA)
     return
 
 
@@ -204,7 +200,7 @@ class AVNUserAppHandler(AVNWorker):
       child =children[i]
       if child.get('name') == name:
         if ignoreInvalid:
-          inList=filter(lambda e: e.get('name') == name and not ( e.get('invalid') == True),self.addonList)
+          inList=[e for e in self.addonList if e.get('name') == name and not ( e.get('invalid') == True)]
           if len(inList) < 0:
             return -1
         return i
@@ -271,6 +267,14 @@ class AVNUserAppHandler(AVNWorker):
     }
     self.additionalAddOns.append(newAddon)
 
+  def unregisterAddOn(self,name):
+    if name is None:
+      raise Exception("name cannot be None")
+    for ao in self.additionalAddOns:
+      if ao.get('name') == name:
+        self.additionalAddOns.remove(ao)
+        return True
+
 
   def deleteByUrl(self,url):
     """
@@ -298,10 +302,12 @@ class AVNUserAppHandler(AVNWorker):
         url=AVNUtil.getHttpRequestParam(requestparam,'url',True)
         icon=AVNUtil.getHttpRequestParam(requestparam,'icon',True)
         title=AVNUtil.getHttpRequestParam(requestparam,'title')
+        newWindow=AVNUtil.getHttpRequestParam(requestparam,'newWindow')
         param = {}
         param['icon'] = icon
         param['title'] = title
         param['url'] = url
+        param['newWindow']=newWindow
         param['keepUrl'] = url.startswith("http")
         doAdd=False
         if name is None:
@@ -323,7 +329,7 @@ class AVNUserAppHandler(AVNWorker):
         idx=self.findChild(name)
         if idx < 0 and not doAdd:
           raise Exception("did not find a user app with this name")
-        for k in param.keys():
+        for k in list(param.keys()):
           idx=self.changeChildConfig(self.CHILDNAME,idx,k,param[k],True)
         self.writeConfigChanges()
         self.fillList()

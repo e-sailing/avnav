@@ -45,6 +45,7 @@ import {getTrackInfo,INFO_ROWS as TRACK_INFO_ROWS} from "./TrackInfoDialog";
 import {getRouteInfo,INFO_ROWS as ROUTE_INFO_ROWS} from "./RouteInfoDialog";
 import RouteEdit from "../nav/routeeditor";
 import mapholder from "../map/mapholder";
+import LogDialog from "./LogDialog";
 
 const RouteHandler=NavHandler.getRoutingHandler();
 /**
@@ -138,9 +139,15 @@ export const allowedItemActions=(props)=>{
         isApp:isApp,
         showOverlay: showOverlay,
         showScheme: showScheme,
-        showConvert: showConvert
+        showConvert: showConvert,
+        showImportLog: props.hasImporterLog
     };
 };
+
+const getImportLogUrl=(name)=>{
+    return globalStore.getData(keys.properties.navUrl)+
+        "?request=api&type=import&command=getlog&name="+encodeURIComponent(name);
+}
 
 const showConvertFunctions = {
     track: (item) => {
@@ -283,8 +290,6 @@ export default  class FileDialog extends React.Component{
             scheme:props.current.scheme,
             allowed:allowedItemActions(props.current)
         };
-        this.updateCount=0;
-        this.lastDimensionsCount=0;
         this.onChange=this.onChange.bind(this);
         this.extendedInfo=stateHelper(this,{},'extendedInfo');
     }
@@ -293,14 +298,7 @@ export default  class FileDialog extends React.Component{
         if (f){
             f(this.props.current.name).then((info)=>{
                 this.extendedInfo.setState(info,true);
-                this.updateCount++;
             }).catch(()=>{});
-        }
-    }
-    componentDidUpdate(prevProps, prevState, snapshot) {
-        if (this.updateCount !== this.lastDimensionsCount){
-             this.props.updateDimensions();
-             this.lastDimensionsCount=this.updateCount;
         }
     }
 
@@ -419,6 +417,19 @@ export default  class FileDialog extends React.Component{
                         }
                     </div>
                     <div className="dialogButtons">
+                        {this.state.allowed.showImportLog &&
+                            <DB name={'log'}
+                                onClick={()=>{
+                                    this.props.closeCallback();
+                                    OverlayDialog.dialog((dprops)=>{
+                                        return <LogDialog {...dprops}
+                                                          baseUrl={getImportLogUrl(this.props.current.name)}
+                                                          title={'Import Log'}
+                                        />
+                                    })
+                                }}
+                                >Log</DB>
+                        }
                         {this.state.allowed.showConvert &&
                             <DB name="toroute"
                                 onClick={()=>{

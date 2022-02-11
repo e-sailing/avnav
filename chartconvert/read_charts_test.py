@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 
@@ -45,7 +45,7 @@ test.add(e2)
 e3=ChartEntry("file3","title3",99,(3,5,7,9))
 test.add(e3)
 
-print str(test)
+print(str(test))
 
 test.save()
 

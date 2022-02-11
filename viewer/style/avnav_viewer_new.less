@@ -34,7 +34,10 @@ html,body {
   font-size: 14px;
   .border-box();
 }
-
+//#117: prevent pan zoom
+body{
+  touch-action: none;
+}
 #new_pages, .app, .pageFrame{
   width: 100%;
   height: 100%;
@@ -47,6 +50,7 @@ html,body {
     color: @nightColor;
   }
 }
+
 .dimm {
   position: fixed;
   top: 0;
@@ -97,6 +101,16 @@ html,body {
   .flex-direction(row-reverse);
   .buttonContainer.scroll{
     .flex-grow(1);
+  }
+}
+.buttonShade {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 101; //above widgets
+  &.shade{
+    background-image: linear-gradient(to right,fade(@colorMain,10), fade(@colorMain,20));
   }
 }
 
@@ -152,13 +166,16 @@ html,body {
 .overlay_cover_active {
   background-color: rgba(0, 0, 0, 0.35);
   display: block;
-  position: absolute;
+  position: fixed;
   left: 0;
   top: 0;
   right: 0;
   bottom: 0;
   overflow: hidden;
   z-index: 120;
+  .flex-display();
+  .flex-justify-content(space-around);
+  .flex-align-items(center);
 }
 
 
@@ -179,6 +196,8 @@ html,body {
     font-size: 1em;
   }
   overflow: auto;
+  max-height: 100%;
+  max-width: 100%;
   .flexInner{
     .flex-display();
     .flex-direction(column);
@@ -217,6 +236,8 @@ html,body {
     margin-right: 0.5em;
     font-size: 0.8em;
     flex-shrink: 0;
+    overflow-x: hidden;
+    text-overflow: fade;
   }
 
 
@@ -264,6 +285,11 @@ html,body {
     width: 1.5em;
     height: 1.5em;
   }
+  .missing {
+    input, .input {
+      .nightBorderFade(@colorRed);
+    }
+  }
 
 }
 
@@ -292,6 +318,12 @@ html,body {
   }
   button{
     width: 4.8em;
+  }
+  .formatterParamContainer{
+    margin-left: 2em;
+    .inputLabel{
+      overflow: hidden;
+    }
   }
 
 }
@@ -403,14 +435,24 @@ html,body {
   .overlayItems{
     padding-right: 35px; /* some room for scrolling */
   }
+
 }
 
+.editOverlayItemDialog{
+  .inputLabel{
+    width: 9em;
+  }
+}
 .FeatureInfoDialog{
   max-width: 50em;
   .icon{
     margin-right: 1em;
   }
 
+}
+.featureInfoHtml{
+  white-space: pre;
+  margin-left: 1em;
 }
 
 .TrackInfoDialog{
@@ -434,6 +476,33 @@ html,body {
   }
 }
 
+.HelpDialog{
+  max-width: 70vw;
+}
+
+.EditHandlerDialog{
+  .inputLabel{
+    width: 9em;
+  }
+  .paramButtons {
+    .flex-display();
+    .flex-direction(row);
+  }
+}
+
+.LogDialog{
+  .logDisplay {
+    overflow-y: auto;
+    white-space: pre-line;
+  }
+  .downloadFrame{
+    width:0;
+    height:0;
+    border:0;
+  }
+  max-width: 90vw;
+  max-height: 90vh;
+}
 
 //-- Color Picker
 
@@ -1016,6 +1085,9 @@ span.valuePrefix{
   .flex-align-items(stretch);
   iframe{
     .flex(1);
+    height: 100%; /* older microsoft ...*/
+    min-height: 100%; //old safari
+    min-width: 100%; //old safari
   }
 }
 #addonpage{
@@ -1038,16 +1110,30 @@ span.valuePrefix{
 }
 
 #statuspage{
+  .editIcon {
+    margin-left: 1em;
+  }
   .status {
     .listEntry();
     .flex-direction(column);
     padding-left: 1em;
     margin-top: 5px;
     line-height: 2em;
+    .statusHeading{
+      .flex-display();
+      .flex-direction(row);
+      &.disabled{
+        .mdText2();
+      }
+    }
   }
   .childStatus {
     padding-left: 1.5em;
     margin-top: 3px;
+    .flex-display();
+    .flex-direction(row);
+    .flex-align-items(center);
+    .flex-wrap(wrap);
     .mdText2();
     img {
       width: 1em;
@@ -1165,6 +1251,7 @@ span.valuePrefix{
   }
   .listEntry{
     .flex-wrap(wrap);
+    .flex-align-items(center);
   }
   .downloadItemData{
     .flex(1);
@@ -1419,43 +1506,8 @@ span.valuePrefix{
 
 //-------------- pages with map and widgets ----------------------------
 .mapPage{
-  .widget{
-    .nightBackColor(rgba(255, 255, 255,0),rgba(0, 0, 0, 0));
-    border-style: solid;
-    border-width: 1px; 
-  }
-  .widget:hover {
-    .nightBackColor(rgba(255, 255, 255,0.8),rgba(0, 0, 0, 0.8));
-  }
-  .widgetContainer{
-    .nightBackColor(rgba(255, 255, 255,0.2),rgba(0, 0, 0, 0.2));
-  }
-  .button {
-    .nightBackColor(rgba(255, 255, 255,0.2),rgba(0, 0, 0, 0.1));
-    border-style: solid;
-    border-width: 1px;
-    border-color: black;
-  }
-
-  .bottomSection {
-    .nightBackColor(rgba(255, 255, 255,0),rgba(0, 0, 0, 0));
-    position: absolute;
-    bottom: 0;
-    z-index:2;    
-  }
-  .button:hover{
-    .nightBackColor(rgba(255, 255, 255,0.8),rgba(255, 255, 255,0.2));
-  }
-  .buttonContainer{
-    .nightBackColor(rgba(255, 255, 255,0),rgba(0, 0, 0, 0));
-    position: absolute;
-    right: 0;
-    z-index:2;    
-  }
-
-
   .map{
-    z-index:1;    
+    .flex(1);
     overflow: hidden;
     /* position absolute contradicts somehow the flex approach
        but otherwise the map will not show on old Safari (IPad 4, safari 9)
@@ -1466,44 +1518,15 @@ span.valuePrefix{
     top: 0;
     bottom: 0;
   }
-
-  .leftPart {
-    flex-direction: row-reverse;
+  &.mapFloat .map{
+    z-index: 1;
   }
-
-  .emulateButtonSpace {
-    display: flex;
-    margin-left: auto;
-    height: 100%;
-    position: relative;
-    width: var(--width);    
-    z-index:-1;
-  }
-
-  .allWidgets {
-    -webkit-box-flex: 1;
-    -moz-box-flex: 1;
-    -webkit-flex: 1;
-    -ms-flex: 1;
-    flex: 1;
-    display: -webkit-box;
-    display: -moz-box;
-    display: -ms-flexbox;
-    display: -webkit-flex;
-    display: flex;
-    -webkit-box-orient: vertical;
-    -moz-box-orient: vertical;
-    -ms-flex-direction: column;
-    -webkit-flex-direction: column;
-    flex-direction: column;
-    min-width: 0;
-    position: relative;  }  
-
   .leftSection{
     .flex-display();
     .flex(1);
     .flex-direction(column);
     position: relative;
+
     min-width: 0;
     min-height: 0;
   }
@@ -1512,7 +1535,6 @@ span.valuePrefix{
     .flex-display();
     .flex-direction(row);
     .flex-wrap(nowrap);
-    justify-content: flex-end;
     position: relative;
     .bottomLeft{
       width: 50%;
@@ -1541,6 +1563,12 @@ span.valuePrefix{
     right: 0;
     bottom: 0;
     background-color: inherit;
-    z-index:3;    
+  }
+  &.mapFloat .buttonContainer{
+    background-color: unset;
+    z-index: 2;
+  }
+  &.mapFloat .buttonShade{
+    z-index: 2;
   }
 }

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 ###############################################################################
@@ -23,7 +23,6 @@
 #  DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-from __future__ import print_function
 import sys
 import os
 import os.path
@@ -52,9 +51,9 @@ except ImportError:
 
 from tiler_functions import *
 
-isGdal2=False
-if re.match("^2",gdal.VersionInfo()):
-    isGdal2=True
+isGdal23=False
+if re.match("^[23]",gdal.VersionInfo()):
+    isGdal23=True
 
 
 #############################
@@ -93,7 +92,7 @@ class BaseImg(object):
             opacity=1
             mode='L'
             if self.transparency is not None:
-                if chr(self.transparency) in tile_bands[0]:
+                if bytes([self.transparency]) in tile_bands[0]:
                     colorset=set(tile_bands[0])
                     if len(colorset) == 1:  # fully transparent
                         return None,0
@@ -244,7 +243,7 @@ resampling_map={
     'bicubic':  Image.BICUBIC,
     'antialias':Image.ANTIALIAS,
     }
-def resampling_lst(): return resampling_map.keys()
+def resampling_lst(): return list(resampling_map.keys())
     
 base_resampling_map={
     'near':         'NearestNeighbour', 
@@ -254,7 +253,7 @@ base_resampling_map={
     'cubicspline':  'CubicSpline',
     'lanczos':      'Lanczos',
     }
-def base_resampling_lst(): return base_resampling_map.keys()
+def base_resampling_lst(): return list(base_resampling_map.keys())
 
 #############################
 
@@ -424,15 +423,15 @@ class Pyramid(object):
                 color_table=band1.GetColorTable()
                 ncolors=color_table.GetCount()
                 palette=[color_table.GetColorEntry(i) for i in range(ncolors)]
-                r,g,b,a=zip(*palette)
-                pil_palette=flatten(zip(r,g,b))             # PIL doesn't support RGBA palettes
+                r,g,b,a=list(zip(*palette))
+                pil_palette=flatten(list(zip(r,g,b)))             # PIL doesn't support RGBA palettes
                 if self.options.dst_nodata is not None:
                     transparency=int(self.options.dst_nodata.split(',')[0])
                 elif min(a) == 0:
                     transparency=a.index(0)
                 elif ncolors < 256:
                     pil_palette+=[0,0,0]                   # the last color added is for transparency
-                    transparency=len(pil_palette)/3-1
+                    transparency=len(pil_palette)//3-1
 
             ld('transparency',transparency)
             if transparency is not None: # render in paletted mode
@@ -458,7 +457,7 @@ class Pyramid(object):
 
                 metadata=src_ds.GetMetadata()
                 if metadata:
-                    mtd_lst=[xml_txt('MDI',metadata[mdkey].encode('utf-8'),4,key=mdkey) for mdkey in metadata]
+                    mtd_lst=[xml_txt('MDI',metadata[mdkey],4,key=mdkey) for mdkey in metadata]
                     meta_txt=meta_templ % '\n'.join(mtd_lst)
                 else:
                     meta_txt=''
@@ -489,7 +488,7 @@ class Pyramid(object):
                 src_vrt=os.path.join(self.dest,self.base+'.src.vrt') # auxilary VRT file
                 self.temp_files.append(src_vrt)
                 self.src_path=src_vrt
-                with open(src_vrt,'w') as f:
+                with open(src_vrt,'w',encoding='utf-8') as f:
                     f.write(vrt_txt)
 
                 self.src_ds=gdal.Open(src_vrt,GA_ReadOnly)
@@ -588,7 +587,7 @@ class Pyramid(object):
 
         ld('target Upper Left',self.bounds[0],ul_c,self.proj2geog.transform([self.bounds[0],ul_c]))
         ld('target Lower Right',self.bounds[1],lr_c,self.proj2geog.transform([self.bounds[1],lr_c]))
-        ld('pix_origin',self.pix_origin,'ul_c+c_off',map(operator.add,ul_c,self.pix_origin))
+        ld('pix_origin',self.pix_origin,'ul_c+c_off',list(map(operator.add,ul_c,self.pix_origin)))
 
         # create VRT for base image warp
 
@@ -599,7 +598,7 @@ class Pyramid(object):
 
         if not self.options.tps and src_geotr and src_geotr != (0.0, 1.0, 0.0, 0.0, 0.0, 1.0):
             ok, src_igeotr=(None,None)
-            if isGdal2:
+            if isGdal23:
                 src_igeotr=gdal.InvGeoTransform(src_geotr)
             else:
                 ok, src_igeotr = gdal.InvGeoTransform(src_geotr)
@@ -628,7 +627,7 @@ class Pyramid(object):
                     ul_c[1],    0.0, res[1] )
 
         ok, dst_igeotr = (None, None)
-        if isGdal2:
+        if isGdal23:
             dst_igeotr=gdal.InvGeoTransform(dst_geotr)
         else:
             ok, dst_igeotr = gdal.InvGeoTransform(dst_geotr)
@@ -658,7 +657,7 @@ class Pyramid(object):
         # process nodata info
         src_nodata=None
         if self.options.src_nodata:
-            src_nodata=map(int,options.src_nodata.split(','))
+            src_nodata=list(map(int,options.src_nodata.split(',')))
             assert len(src_nodata) == src_bands, 'Nodata must match the number of bands'
             if src_bands > 1:
                 warp_options.append(w_option('UNIFIED_SRC_NODATA','YES'))
@@ -707,7 +706,7 @@ class Pyramid(object):
 
         temp_vrt=os.path.join(self.dest,self.base+'.tmp.vrt') # auxilary VRT file
         self.temp_files.append(temp_vrt)
-        with open(temp_vrt,'w') as f:
+        with open(temp_vrt,'w',encoding='utf-8') as f:
             f.write(vrt_text)
 
         # warp base raster
@@ -773,19 +772,12 @@ class Pyramid(object):
 
         ld('min_zoom',zoom,'tile_ul',tile_ul,'tile_lr',tile_lr,'tiles',zoom_tiles_map)
         self.all_tiles=frozenset(self.tile_map)
-        top_results=filter(None,map(self.proc_tile,zoom_tiles_map.keys()))
+        top_results=[_f for _f in map(self.proc_tile,list(zoom_tiles_map.keys())) if _f]
 
         # write top-level metadata (html/kml)
         self.write_metadata(None,[ch for img,ch,opacities in top_results])
         self.write_tilemap()
-        
-        # cache back tiles opacity
-        file_opacities=[(self.tile_path(tile),opc)
-            for tile,opc in flatten([opacities for img,ch,opacities in top_results])]
-        try:
-            pickle.dump(dict(file_opacities),open(os.path.join(self.dest, 'merge-cache'),'w'))
-        except:
-            logging.warning("opacity cache save failed")
+
 
     #----------------------------
 
@@ -811,7 +803,7 @@ class Pyramid(object):
                                for dx in range(dz)]
                                    for dy in range(dz)]))
             children=self.all_tiles & frozenset(ch_mozaic)
-            ch_results=filter(None,map(self.proc_tile,children))
+            ch_results=[_f for _f in map(self.proc_tile,children) if _f]
             #ld('tile',tile,'children',children,'ch_results',ch_results)
             if len(ch_results) == 4 and all([opacities[0][1]==1 for img,ch,opacities in ch_results]):
                 opacity=1
@@ -936,7 +928,7 @@ class Pyramid(object):
             maxy=       bounds[0][1],
             tilesets=   '\n'.join(tilesets),
             )
-        open(os.path.join(self.dest,'tilemap.xml'),'w').write(tilemap_txt)
+        open(os.path.join(self.dest,'tilemap.xml'),'w',encoding='utf-8').write(tilemap_txt)
 
     #----------------------------
     #
@@ -961,7 +953,7 @@ class Pyramid(object):
         print()
 
     def zoom2res(self,zoom):
-        return map(lambda res: res/2**zoom, self.zoom0_res)
+        return list(map(lambda res: res/2**zoom, self.zoom0_res))
 
     def res2zoom_xy(self,res):
         'resolution to zoom levels (separate for x and y)'
@@ -972,30 +964,14 @@ class Pyramid(object):
         'pixel coordinates to tile (z,x,y)'
         return [zoom]+[pix_coord[i]//self.tile_sz[i] for i in (0,1)]
 
-    def pix2tile_new(self,zoom,pix_coord):
-        'pixel coordinates to tile (z,x,y)'
-        res=self.zoom2res(zoom)
-        ld(res)
-        tile_xy=[int(round(
-                    (pix_coord[i]*res[i]-self.pix_origin[i]-self.tiles_origin[i])/res[i]
-                )) // self.tile_sz[i] for i in (0,1)]
-        return [zoom]+[(tile_xy[i] if self.tile_direction[i] != -1 else -tile_xy[i]+1) for i in (0,1)]
 
 #    pix2tile=pix2tile_new
     
     def tile2pix(self,tile):
         'pixel coordinates of the upper left corner of a tile'
-        return map(operator.mul,self.tile_sz,tile[1:])
+        return list(map(operator.mul,self.tile_sz,tile[1:]))
 
-    def tile2pix_new(self,tile):
-        'pixel coordinates of the upper left corner of a tile'
-        res=self.zoom2res(zoom)
-        tile_xy=[xy if d != -1 else -xy+1 for xy,d in zip(tile[1:],self.tile_direction)]
-        pix=[tile_xy[i]*self.tile_sz[i]*res[i] for i in (0,1)]
-        return zzzzz
 
-#    tile2pix=tile2pix_new
-    
     def coord2tile(self,zoom,coord):
         'cartesian coordinates to tile numbers'
         return self.pix2tile(zoom,self.coord2pix(zoom,coord))
@@ -1008,7 +984,7 @@ class Pyramid(object):
     def tile_bounds(self,tile):
         "cartesian coordinates of a tile's corners"
         z=tile[0]
-        return map(self.pix2coord,(z,z),self.tile_pixbounds(tile))
+        return list(map(self.pix2coord,(z,z),self.tile_pixbounds(tile)))
 
     def coord2pix(self,zoom,coord):
         'cartesian coordinates to pixel coordinates'
@@ -1021,7 +997,7 @@ class Pyramid(object):
 
     def tiles_xy(self,zoom):
         'number of tiles along X and Y axes'
-        return map(lambda v: v*2**zoom,self.zoom0_tiles)
+        return [v*2**zoom for v in self.zoom0_tiles]
 
     def coords2longlat(self,coords):
         longlat=[i[:2] for i in self.proj2geog.transform(coords)]
@@ -1047,7 +1023,7 @@ class Pyramid(object):
         box_ul,box_lr=[self.tile_bounds(t) for t in (t_ul,t_lr)]
         ld('corner_tiles zoom',zoom,
             'zoom tiles',nztiles,
-            'zoom pixels',map(lambda zt,ts:zt*ts,nztiles,self.tile_sz),
+            'zoom pixels',list(map(lambda zt,ts:zt*ts,nztiles,self.tile_sz)),
             'p_ul',p_ul,'p_lr',p_lr,'t_ul',t_ul,'t_lr',t_lr,
             'longlat', self.coords2longlat([box_ul[0],box_lr[1]])
             )
@@ -1079,7 +1055,7 @@ class Pyramid(object):
                     zrange.append(z)
                 
                 # update range list
-                zlist+=range(min(zrange),max(zrange)+1)
+                zlist+=list(range(min(zrange),max(zrange)+1))
                 
         self.zoom_range=list(reversed(sorted(set(zlist))))
         ld('zoom_range',self.zoom_range,defaults)
@@ -1130,7 +1106,7 @@ class GenericMap(Pyramid):
         self.srs=options.t_srs
         assert self.proj, 'Target SRS is not specified'
         self.tile_sz=tuple(map(int,options.tile_size.split(',')))
-        self.zoom0_tiles=map(int,options.zoom0_tiles.split(','))
+        self.zoom0_tiles=list(map(int,options.zoom0_tiles.split(',')))
         if options.tms:
             tile_direction=(1,1)
         else:
@@ -1203,7 +1179,7 @@ class PlateCarree(Pyramid):
             'dbg_start': '' if options.verbose < 2 else '    <!--\n',
             'dbg_end':   '' if options.verbose < 2 else '      -->\n',
             }
-        open(os.path.join(self.dest,rel_path+'.kml'),'w+').write(kml)
+        open(os.path.join(self.dest,rel_path+'.kml'),'w+',encoding='utf-8').write(kml)
 
     def write_metadata(self,tile,children=[]):
         if not tile: # create top level kml

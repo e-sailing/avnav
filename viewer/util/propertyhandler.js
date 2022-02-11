@@ -48,6 +48,15 @@ class PropertyHandler {
             return;
         }
         this.incrementSequence();
+        try{
+            window.addEventListener('message',(ev)=>{
+                if (ev.origin !== window.location.origin) return;
+                if (ev.data === 'reloadSettings'){
+                    this.resetToSaved();
+                    this.incrementSequence();
+                }
+            })
+        } catch (e){}
     }
 
     loadUserData(){
@@ -81,6 +90,9 @@ class PropertyHandler {
     saveUserData(data) {
         let raw = JSON.stringify(data);
         localStorage.setItem(globalStore.getData(keys.properties.settingsName), raw);
+        try{
+            window.parent.postMessage('settingsChanged',window.location.origin);
+        }catch (e){}
     }
 
 
@@ -113,21 +125,16 @@ class PropertyHandler {
         let color = "";
         if (currentObject.warning) {
             color = this.getColor('aisWarningColor');
-        }
-        else {
-            if (currentObject.tracking) {
+        } else {
+            if (currentObject.nearest) {
+                color = this.getColor('aisNearestColor');
+            } else if (currentObject.tracking) {
                 color = this.getColor('aisTrackingColor');
-            }
-            else {
-                if (currentObject.nearest) {
-                    color = this.getColor('aisNearestColor');
-                }
-                else {
-                    color = this.getColor('aisNormalColor');
-                }
+            } else {
+                color = this.getColor('aisNormalColor');
             }
         }
-        return color;
+    return color;
     }
 
 
@@ -148,6 +155,18 @@ class PropertyHandler {
         }catch (e){
             base.log("Exception reading user data "+e);
         }
+    }
+
+    firstStart(){
+        let changes={};
+        for (let path in this.propertyDescriptions){
+            let pd=this.propertyDescriptions[path];
+            if (pd.initialValue !== undefined){
+                changes[path]=pd.initialValue;
+            }
+        }
+        globalStore.storeMultiple(changes);
+        //set some initial properties
     }
 
 }

@@ -23,7 +23,6 @@
  ###############################################################################
  */
 
-import Promise from 'promise';
 import ChartSourceBase from './chartsourcebase.js';
 import {Style as olStyle, Stroke as olStroke, Circle as olCircle, Icon as olIcon, Fill as olFill} from 'ol/style';
 import {Vector as olVectorSource} from 'ol/source';
@@ -139,11 +138,6 @@ class GeoJsonChartSource extends ChartSourceBase{
         };
 
     }
-
-    getLinkUrl(link){
-        if (! this.chartEntry.icons) return;
-        return this.chartEntry.icons+"/"+link;
-    }
     styleFunction(feature,resolution) {
         let type=feature.getGeometry().getType();
         return this.styles[feature.getGeometry().getType()];
@@ -164,7 +158,7 @@ class GeoJsonChartSource extends ChartSourceBase{
             let layerOptions={
                 source: vectorSource,
                 style: this.styleFunction,
-                opacity: this.chartEntry.opacity!==undefined?this.chartEntry.opacity:1
+                opacity: this.chartEntry.opacity!==undefined?parseFloat(this.chartEntry.opacity):1
             };
             if (this.chartEntry.minZoom !== undefined) layerOptions.minZoom=this.chartEntry.minZoom;
             if (this.chartEntry.maxZoom !== undefined) layerOptions.maxZoom=this.chartEntry.maxZoom;
@@ -188,11 +182,6 @@ class GeoJsonChartSource extends ChartSourceBase{
         if (geometry instanceof olPoint){
             rt.kind='point';
             coordinates=this.mapholder.transformFromMap(geometry.getCoordinates());
-            let link=feature.get('link');
-            if (link && this.chartEntry.icons){
-                rt.link=this.getLinkUrl(link);
-                rt.linkText=feature.get('linkText');
-            }
             rt.nextTarget=coordinates;
         }
         else{
@@ -205,13 +194,16 @@ class GeoJsonChartSource extends ChartSourceBase{
             }
         }
         rt.coordinates=coordinates;
-        rt.desc=feature.get('desc');
-        rt.name=feature.get('name');
-        rt.sym=feature.get('sym');
+        let param=['desc','name','sym','link','linkText'];
+        param.forEach((p)=>rt[p]=feature.get(p));
         for (let k in this.chartEntry){
             if (Helper.startsWith(k,stylePrefix)){
                 rt[k]=this.chartEntry[k];
             }
+        }
+        this.formatFeatureInfo(rt,feature,coordinates);
+        if (rt.link && this.chartEntry.icons){
+            rt.link=this.getLinkUrl(rt.link);
         }
         return rt;
     }
@@ -259,6 +251,7 @@ export const readFeatureInfoFromGeoJson=(doc)=>{
             rt[stylePrefix + k] =true;
         }
     })
+    rt.allowFormatter=true;
     return rt;
 
 }

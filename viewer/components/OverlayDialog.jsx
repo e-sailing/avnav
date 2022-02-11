@@ -8,7 +8,6 @@
  */
 
 import React from 'react';
-import Promise from 'promise';
 import PropTypes from 'prop-types';
 import assign from 'object-assign';
 import DialogDisplay from './OverlayDialogDisplay.jsx';
@@ -21,7 +20,11 @@ import DB from './DialogButton.jsx';
 import shallowcompare from '../util/shallowcompare.js';
 
 let id=1;
-
+const notifyClosed=()=>{
+    if (window.avnav.android && window.avnav.android.dialogClosed){
+        window.avnav.android.dialogClosed();
+    }
+}
 const nextId=()=> {
     id++;
     return id;
@@ -65,6 +68,7 @@ const removeDialog=(key,opt_omitCancel)=> {
         //if someone calls removeDialog in the cancel callback
         old.cancelCallback();
     }
+    notifyClosed();
     return old !== undefined;
 };
 
@@ -87,9 +91,10 @@ const Dialogs = {
      * @param list
      * @param okCallback
      * @param cancelCallback
+     * @param optResetCallback
      * @return {Function}
      */
-    createSelectDialog: (title,list,okCallback,cancelCallback)=> {
+    createSelectDialog: (title,list,okCallback,cancelCallback,optResetCallback)=> {
         return (props)=> {
             return (
                 <div className="selectDialog inner">
@@ -106,6 +111,13 @@ const Dialogs = {
                         })}
                     </div>
                     <div className="dialogButtons">
+                        {optResetCallback && <DB
+                            name="reset"
+                            onClick={(ev)=>{
+                                if (props.closeCallback) props.closeCallback();
+                                optResetCallback(ev);
+                            }}
+                        >Reset</DB>}
                         <DB name="cancel"
                                 onClick={(ev)=>{
                                     if (props.closeCallback) props.closeCallback();
@@ -390,6 +402,7 @@ export const dialogHelper=(thisref,stateName)=>{
             let state={};
             state[stateName]=undefined;
             thisref.setState(state);
+            notifyClosed();
         },
         filterState:(state)=>{
             let rt=assign({},state);
@@ -398,8 +411,9 @@ export const dialogHelper=(thisref,stateName)=>{
         },
         getRender(){
             if (!thisref.state[stateName]) return null;
+            let Display=InputMonitor(DialogDisplay);
             return(
-                <DialogDisplay
+                <Display
                     className="nested"
                     content={thisref.state[stateName]}
                     closeCallback={()=>{

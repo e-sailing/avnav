@@ -11,7 +11,7 @@ buildscript{
     }
     dependencies{
         classpath localGroovy()
-        classpath 'com.netflix.nebula:gradle-ospackage-plugin:7.5.0'
+        classpath 'com.netflix.nebula:gradle-ospackage-plugin:8.5.6'
         classpath 'commons-net:commons-net:3.3'
         classpath 'org.eclipse.jgit:org.eclipse.jgit:4.6.0.201612231935-r'
         classpath group: 'org.ccil.cowan.tagsoup', name: 'tagsoup', version: '1.2.1'
@@ -163,14 +163,13 @@ ospackage {
     os = LINUX // only applied to RPM
     packageGroup='misc'
     packageName='avnav'
-    requires('bluetooth')
-    requires('python-bluez')
-    requires('python-pyudev')
-    requires('python-serial')
-    requires('python-gdal')
-    requires('python-imaging').or('python-pil')
-    requires('python-netifaces')
-    requires('python-websocket')
+    requires('python3-pip')
+    requires('python3-pyudev')
+    requires('python3-serial')
+    requires('python3-gdal')
+    requires('python3-imaging').or('python3-pil')
+    requires('python3-netifaces')
+    requires('python3-dbus')
     user='root'
     into ('/usr/lib/avnav') {
         from('viewer/build/release') {
@@ -292,11 +291,19 @@ task releaseRpm(type: Rpm) {
     group taskgroup
     arch = NOARCH
     dependsOn 'releaseViewer',pkgVersion
+    requires('gcc')
+    requires('python3-devel')
+    requires('bluez-devel')
+    requires('python3-websocket-client')
 }
 
 task releaseDeb(type: Deb) {
     group taskgroup
     dependsOn 'releaseViewer',pkgVersion
+    requires('bluetooth')
+    requires('libbluetooth-dev')
+    requires('python3-websocket')
+    recommends 'python3-bluez'
 }
 
 task release{
@@ -362,13 +369,7 @@ task uploadRpm(type: UploadTask){
     dependsOn releaseRpm
     baseDir="daily/${project.avnavVersion}"
 }
-task uploadWindows(type: UploadTask){
-    group=UPLOAD_GROUP
-    def windowsVersion=project.avnavVersion.replaceAll(/(....)(..)(..)/,'$1-$2-$3').replaceAll(/-0([^-])/,'-$1')
-    inputFile=file("windows/build/AvNavSetup-${windowsVersion}-0.exe")
-    dependsOn windowsBuild
-    baseDir="daily/${project.avnavVersion}"
-}
+
 task uploadWindowsNet(type: UploadTask){
     group=UPLOAD_GROUP
     def windowsVersion=project.avnavVersion.replaceAll(/(....)(..)(..)/,'$1-$2-$3').replaceAll(/-0([^-])/,'-$1')
@@ -667,7 +668,9 @@ task findBrokenLinks(type: DefaultTask){
         def requestedAnchors=[]
         list.visit{ FileVisitDetails element ->
           if (! element.getFile().isFile()) return;
-          if (! element.getName().matches('.*html$')) return;  
+          if (! element.getName().matches('.*html$')) return;
+          def prefix="";
+          if (element.getName().startsWith("en_")) prefix="en_";  
           def pageName=element.getPath();
           def tagsoupParser = new org.ccil.cowan.tagsoup.Parser()
           def page = new MySlurper(tagsoupParser).parse(element.getFile())
@@ -692,6 +695,9 @@ task findBrokenLinks(type: DefaultTask){
             link=link.replaceAll("[?].*","")
             def parts=link.split('#')
             def pageLink=parts[0]
+            if (pageLink.endsWith("html")){
+                pageLink=pageLink.replaceAll("/([^/]*)\$","/"+prefix+'$1')
+            }
             if (!pageLink.isEmpty()){        
                 def target=file("$baseDir/$relPath$pageLink")
                 if (!target.exists()){
@@ -755,13 +761,38 @@ task findUnusedImages(type: DefaultTask){
     }
 }
 
+task getTimeZones{
+    doLast{
+        def url="https://raw.githubusercontent.com/vvo/tzdb/master/time-zones-names.json"
+        def tzfile=file('raspberry/configui/timezones.json')
+        new URL(url).withInputStream{ i -> tzfile.withOutputStream{ it << i }}
+    }
+}
+
+task uploadConfigGen(type: UploadTask){
+    inputFiles=fileTree(
+        'raspberry/configui',{
+            include '*html'
+            include '*js'
+            include '*css'
+            include '*conf'
+            include '*.json'
+        }
+    )
+    deleteTargetDir=false
+    baseDir="../configGen"
+    useHashes=true
+    dependsOn getTimeZones
+}
+
+
 task upload{
     doLast {
         println "###uploaded artifacts to version dir $project.avnavVersion###"
     }
     dependsOn uploadDeb,uploadRaspi,uploadRpm,uploadViewer, uploadAccess,uploadZip
     if (onWindows){
-        dependsOn uploadWindows,uploadWindowsNet
+        dependsOn uploadWindowsNet
     }
     if (buildAndroid){
         dependsOn uploadAndroidBeta
@@ -774,7 +805,7 @@ task uploadRelease{
     }
     dependsOn testGit,uploadDeb,uploadRaspi,uploadRpm,uploadViewerRelease,uploadAccess,uploadZip
     if (onWindows){
-        dependsOn uploadWindows,uploadWindowsNet,uploadAccessWindows
+        dependsOn uploadWindowsNet,uploadAccessWindows
     }
     if (buildAndroid){
         dependsOn uploadAndroidRelease

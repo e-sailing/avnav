@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 ###############################################################################
 # Copyright (c) 2010,2011 Vadim Shlyakhov
@@ -32,7 +32,7 @@ from PIL import Image
 
 from tiler_functions import *
 
-class ZoomSet:
+class ZoomSet(object):
     def __init__(self,tiles_dir):
         pf('%s ' % tiles_dir,end='')    
 
@@ -75,7 +75,7 @@ class ZoomSet:
         try:
 
             top_zoom=min(self.tileset.zooms)
-            new_zooms=range(top_zoom-1,target_zoom-1,-1)
+            new_zooms=list(range(top_zoom-1,target_zoom-1,-1))
             if not new_zooms:
                 return
             for zoom in new_zooms: # make new zoom tiles
@@ -93,7 +93,7 @@ class ZoomSet:
                 if len(self.src_lst) == 0:
                     raise Exception("No tiles in %s" % os.getcwd())
 
-                dest_lst=set([(zoom,src_x/2,src_y/2) for (src_x,src_y) in self.src_lst])
+                dest_lst=set([(zoom,src_x//2,src_y//2) for (src_x,src_y) in self.src_lst])
 
                 for i in set([x for z,x,y in dest_lst]):
                     os.makedirs('%i/%i' % (zoom,i))
@@ -120,7 +120,7 @@ class ZoomSet:
             for z in sorted(new_tilesets): # sorted merge of new and old tilsets
                 tilesets_el.appendChild(new_tilesets[z])
 
-            with open(self.tileset.tilemap,'w') as f:
+            with open(self.tileset.tilemap,'wb') as f:
                 #doc.writexml(f,encoding='utf-8')
                 f.write(doc.toxml('utf-8'))
 

@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -25,20 +24,7 @@
 #  parts from this software (AIS decoding) are taken from the gpsd project
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
-
 import time
-import subprocess
-import threading
-import os
-import datetime
-import glob
-import sys
-import traceback
-import json
-import datetime
-import threading
-import signal
-import shlex
 
 hasGpio=False
 try:
@@ -47,19 +33,44 @@ try:
 except:
   pass
 
-from avnav_config import AVNConfig
+from avnav_manager import AVNHandlerManager
 from avnav_util import *
 from avnav_worker import *
 import avnav_handlerList
 
+class AlarmConfig:
+  def __init__(self,name="dummy",command="sound", parameter=None, repeat="1"):
+    self.name=name
+    self.command=command
+    self.parameter=parameter
+    self.repeat=int(repeat)
+  def toDict(self):
+    return self.__dict__
+
 
 class AVNAlarmHandler(AVNWorker):
   CHANGE_KEY='alarm' #key for change counts
+  DEFAULT_ALARMS=[
+    		AlarmConfig(name="waypoint",command="sound",parameter="$BASEDIR/../sounds/waypointAlarm.mp3",repeat="1"),
+  		  AlarmConfig(name="ais",command="sound",parameter="$BASEDIR/../sounds/aisAlarm.mp3",repeat="1"),
+  		  AlarmConfig("anchor",command="sound",parameter="$BASEDIR/../sounds/anchorAlarm.mp3",repeat="20000"),
+  		  AlarmConfig(name="gps",command="sound", parameter="$BASEDIR/../sounds/anchorAlarm.mp3", repeat="20000"),
+  		  AlarmConfig(name="mob", command="sound", parameter="$BASEDIR/../sounds/anchorAlarm.mp3", repeat="2")
+  ]
   """a handler for alarms"""
   def __init__(self,param):
     AVNWorker.__init__(self, param)
     self.runningAlarms={}
     self.commandHandler=None
+    currentAlarms=self.param.get('Alarm')
+    if currentAlarms is None:
+      currentAlarms=[]
+    for da in self.DEFAULT_ALARMS:
+      if any(x for x in currentAlarms if x.get('name') == da.name):
+        continue
+      currentAlarms.append(da.toDict())
+    self.param['Alarm']=currentAlarms
+
   @classmethod
   def getConfigName(cls):
     return "AVNAlarmHandler"
@@ -86,25 +97,17 @@ class AVNAlarmHandler(AVNWorker):
 
   @classmethod
   def autoInstantiate(cls):
-    return '''
-    <AVNAlarmHandler>
-		<Alarm name="waypoint" command="sound" parameter="$BASEDIR/../sounds/waypointAlarm.mp3" repeat="1"/>
-		<Alarm name="ais" command="sound" parameter="$BASEDIR/../sounds/aisAlarm.mp3" repeat="1"/>
-		<Alarm name="anchor" command="sound" parameter="$BASEDIR/../sounds/anchorAlarm.mp3" repeat="20000"/>
-		<Alarm name="gps" command="sound" parameter="$BASEDIR/../sounds/anchorAlarm.mp3" repeat="20000"/>
-		<Alarm name="mob" command="sound" parameter="$BASEDIR/../sounds/anchorAlarm.mp3" repeat="2"/>
-	</AVNAlarmHandler>
-    '''
+    return True
+
 
   def _gpioCmd(self,channel):
     self.stopAll()
   def run(self):
-    self.setName(self.getThreadPrefix())
     self.commandHandler=self.findHandlerByName("AVNCommandHandler")
     if self.commandHandler is None:
-      self.setInfo('main',"no command handler found",self.Status.ERROR)
+      self.setInfo('main',"no command handler found",WorkerStatus.ERROR)
       return
-    self.setInfo('main',"running",self.Status.NMEA)
+    self.setInfo('main',"running",WorkerStatus.NMEA)
     gpioPin=self.getIntParam('stopAlarmPin',False)
     if gpioPin != 0:
       if not hasGpio:
@@ -114,10 +117,10 @@ class AVNAlarmHandler(AVNWorker):
         GPIO.setup(gpioPin,GPIO.IN,pull_up_down=GPIO.PUD_UP)
         GPIO.add_event_detect(gpioPin,GPIO.FALLING,callback=self._gpioCmd,bouncetime=100)
         AVNLog.info("set gpio pin %d as reset alarm",gpioPin)
-    while True:
+    while not self.shouldStop():
       time.sleep(0.5)
       deletes=[]
-      for k in self.runningAlarms.keys():
+      for k in list(self.runningAlarms.keys()):
         id = self.runningAlarms.get(k)
         if not self.commandHandler.isCommandRunning(id):
           info=self.findAlarm(k,True)
@@ -129,7 +132,7 @@ class AVNAlarmHandler(AVNWorker):
         except:
           pass
         self.setInfo(k, "alarm inactive \"%s\" " % k,
-                     self.Status.INACTIVE)
+                     WorkerStatus.INACTIVE)
 
   def getRunningAlarms(self):
     return self.runningAlarms
@@ -139,7 +142,7 @@ class AVNAlarmHandler(AVNWorker):
     rt=dict.get(name)
     if rt is None:
       return False
-    return unicode(rt).upper() == u'TRUE'
+    return str(rt).upper() == 'TRUE'
   @classmethod
   def getInt(cls,dict,name):
     if dict is None:
@@ -159,7 +162,7 @@ class AVNAlarmHandler(AVNWorker):
           if param=="":
             param=None
           if param is not None:
-            param=AVNUtil.replaceParam(param,AVNConfig.filterBaseParam(self.getParam()))
+            param=AVNUtil.replaceParam(param, AVNHandlerManager.filterBaseParam(self.getParam()))
           rt= {
             'command':cmd.get('command'),
             'autoclean':self.getBoolean(cmd,'autoclean'),
@@ -183,7 +186,7 @@ class AVNAlarmHandler(AVNWorker):
     cmd=self.findAlarm(name,useDefault)
     if cmd is None:
       AVNLog.error("no alarm \"%s\" configured", name)
-      self.setInfo(name, "no alarm \"%s\" configured"%name, self.Status.ERROR)
+      self.setInfo(name, "no alarm \"%s\" configured"%name, WorkerStatus.ERROR)
       return False
     if self.runningAlarms.get(name) is not None:
       return True
@@ -192,9 +195,9 @@ class AVNAlarmHandler(AVNWorker):
       info=cmd['command']
       if cmd.get('parameter') is not None:
         info+=" "+cmd.get('parameter')
-      self.setInfo(name, "activated %s" % info, self.Status.NMEA)
+      self.setInfo(name, "activated %s" % info, WorkerStatus.NMEA)
     else:
-      self.setInfo(name, "unable to start alarm command \"%s\":\"%s\" " % (name,cmd['command']), self.Status.INACTIVE)
+      self.setInfo(name, "unable to start alarm command \"%s\":\"%s\" " % (name,cmd['command']), WorkerStatus.INACTIVE)
     if alarmid is None:
       alarmid=-1
     self.runningAlarms[name] = alarmid
@@ -204,10 +207,10 @@ class AVNAlarmHandler(AVNWorker):
   def stopAll(self):
     '''stop all alarms'''
     AVNLog.info("stopAllAlarms")
-    list=self.getRunningAlarms()
+    alist=self.getRunningAlarms()
     if list is None:
       return
-    for name in list.keys():
+    for name in list(alist.keys()):
       self.stopAlarm(name)
   def stopAlarm(self, name):
     '''stop a named command'''
@@ -224,7 +227,7 @@ class AVNAlarmHandler(AVNWorker):
       self.navdata.updateChangeCounter(self.CHANGE_KEY)
     if alarmid is not None and alarmid >=0:
       self.commandHandler.stopCommand(alarmid)
-    self.setInfo(name, "stopped", self.Status.INACTIVE)
+    self.setInfo(name, "stopped", WorkerStatus.INACTIVE)
     return True
 
   def isAlarmActive(self,name):
@@ -242,7 +245,7 @@ class AVNAlarmHandler(AVNWorker):
         if n is None:
           continue
         rt[n]=cmd.get('command')
-    for k in self.runningAlarms.keys():
+    for k in list(self.runningAlarms.keys()):
       if rt.get(k) is None:
         info=self.findAlarm(k,True)
         rt[k]=info.get('command')
@@ -277,7 +280,7 @@ class AVNAlarmHandler(AVNWorker):
       file=alarmInfo.get('parameter')
       if file is None:
         return None
-      fh=open(file)
+      fh=open(file,"rb")
       if fh is None:
         AVNLog.error("unable to find alarm sound %s",file)
         return None
@@ -294,7 +297,7 @@ class AVNAlarmHandler(AVNWorker):
       definedCommands = self.getStatusProperties()
       if definedCommands is None:
         return rt
-      for name in definedCommands.keys():
+      for name in list(definedCommands.keys()):
         if name is None:
           continue
         if not name in status and not 'all' in status :

@@ -1,6 +1,5 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import Promise from 'promise';
 import OverlayDialog,{dialogHelper,stateHelper} from './OverlayDialog.jsx';
 import assign from 'object-assign';
 import {Input,Checkbox,InputReadOnly,InputSelect,ColorSelector,Radio} from './Inputs.jsx';
@@ -19,6 +18,7 @@ import keys from '../util/keys';
 import OverlayConfig, {getKeyFromOverlay,OVERLAY_ID} from '../map/overlayconfig';
 import DefaultGpxIcon from '../images/icons-new/DefaultGpxPoint.png'
 import {readFeatureInfoFromGeoJson} from "../map/geojsonchartsource";
+import featureFormatters from '../util/featureFormatter';
 
 const filterOverlayItem=(item,opt_itemInfo)=>{
     let rt=undefined;
@@ -168,7 +168,7 @@ class OverlayItemDialog extends React.Component{
         };
         this.stateHelper.setState(newState);
     }
-    analyseOverlay(url){
+    analyseOverlay(url,initial){
         this.setState({loading:true,itemInfo:undefined});
         Requests.getHtmlOrText(url)
             .then((data)=>{
@@ -189,16 +189,18 @@ class OverlayItemDialog extends React.Component{
                         this.setState({loading:false,itemInfo:{}});
                         this.stateHelper.setValue('name',undefined);
                     }
-                    let newState={loading:false,itemInfo: featureInfo}
-                    let newItemState={};
-                    newItemState['style.lineWidth']=(featureInfo.hasRoute)?globalStore.getData(keys.properties.routeWidth):
-                        globalStore.getData(keys.properties.trackWidth);
-                    newItemState['style.lineColor']=(featureInfo.hasRoute)?globalStore.getData(keys.properties.routeColor):
-                        globalStore.getData(keys.properties.trackColor);
-                    newItemState['style.fillColor']=newItemState['style.lineColor'];
-                    newItemState['style.circleWidth']=newItemState['style.lineWidth']*3;
+                    let newState={loading:false,itemInfo: featureInfo};
                     this.setState(newState);
-                    this.stateHelper.setState(newItemState);
+                    if (initial) {
+                        let newItemState = {};
+                        newItemState['style.lineWidth'] = (featureInfo.hasRoute) ? globalStore.getData(keys.properties.routeWidth) :
+                            globalStore.getData(keys.properties.trackWidth);
+                        newItemState['style.lineColor'] = (featureInfo.hasRoute) ? globalStore.getData(keys.properties.routeColor) :
+                            globalStore.getData(keys.properties.trackColor);
+                        newItemState['style.fillColor'] = newItemState['style.lineColor'];
+                        newItemState['style.circleWidth'] = newItemState['style.lineWidth'] * 3;
+                        this.stateHelper.setState(newItemState);
+                    }
                 }catch (e){
                     Toast(url+" is no valid xml: "+e.message);
                     this.setState({loading:false,itemInfo:{}});
@@ -231,6 +233,12 @@ class OverlayItemDialog extends React.Component{
         let defaultColor=(itemInfo.hasRoute)?globalStore.getData(keys.properties.routeColor):
             globalStore.getData(keys.properties.trackColor);
         let iconsReadOnly=Helper.getExt(this.stateHelper.getValue('name')) === 'kmz';
+        let formatters=[{label:'-- none --',value:undefined}];
+        for (let f in featureFormatters){
+            if (typeof(featureFormatters[f]) === 'function'){
+                formatters.push({label:f,value:f});
+            }
+        }
         return(
             <React.Fragment>
                 <div className="selectDialog editOverlayItemDialog">
@@ -260,7 +268,7 @@ class OverlayItemDialog extends React.Component{
                                 dialogRow={true}
                                 label="opacity"
                                 value={this.stateHelper.getValue('opacity')}
-                                onChange={(nv) => this.stateHelper.setValue('opacity', nv)}
+                                onChange={(nv) => this.stateHelper.setValue('opacity', parseFloat(nv))}
                                 type="number"
                             />
                             {(currentType == 'chart') ?
@@ -294,8 +302,9 @@ class OverlayItemDialog extends React.Component{
                                                 newState.icons=nv.url;
                                                 newState.url+="/doc.kml";
                                             }
+                                            let initial=this.stateHelper.getValue('name') === undefined;
                                             this.stateHelper.setState(newState);
-                                            this.analyseOverlay(newState.url);
+                                            this.analyseOverlay(newState.url,initial);
                                         }}
                                     />
                                     {!iconsReadOnly && (itemInfo.hasSymbols || itemInfo.hasLinks) && <InputSelect
@@ -333,6 +342,19 @@ class OverlayItemDialog extends React.Component{
                                         value={this.stateHelper.getValue('allowHtml')||false}
                                         onChange={(nv)=>this.stateHelper.setValue('allowHtml',nv)}
                                     />}
+                                    {itemInfo.allowFormatter &&
+                                        <InputSelect
+                                            dialogRow={true}
+                                            showDialogFunction={this.dialogHelper.showDialog}
+                                            label={"featureFormatter"}
+                                            value={this.stateHelper.getValue('featureFormatter')}
+                                            onChange={(nv) => {
+                                                this.stateHelper.setValue('featureFormatter',nv.value);
+                                            }}
+                                            list={formatters}
+                                            />
+
+                                    }
                                     {itemInfo['style.lineWidth'] &&
                                         <Input
                                             dialogRow={true}
@@ -424,6 +446,7 @@ class OverlayItemDialog extends React.Component{
                                 name="ok"
                                 onClick={() => {
                                     let changes = this.stateHelper.getValues(true);
+                                    changes.opacity=parseFloat(changes.opacity);
                                     if (changes.opacity < 0) changes.opacity = 0;
                                     if (changes.opacity > 1) changes.opacity = 1;
                                     this.props.updateCallback(changes);
@@ -577,7 +600,6 @@ class EditOverlaysDialog extends React.Component{
         this.state.useDefault=this.props.current.getUseDefault();
         this.state.isChanged=false;
         this.dialogHelper=dialogHelper(this);
-        this.sizeCount=0;
         this.reset=this.reset.bind(this);
         this.updateList=this.updateList.bind(this);
         this.hideAll=this.hideAll.bind(this);
@@ -607,11 +629,6 @@ class EditOverlaysDialog extends React.Component{
         if (count < 0) idx = -1;
         this.setState({list: newList, isChanged: true, selectedIndex: idx});
     }
-    updateDimensions(){
-        if (this.props.updateDimensions){
-            this.props.updateDimensions();
-        }
-    }
     showItemDialog(item,opt_forceOk){
         return new Promise((resolve,reject)=>{
             this.dialogHelper.showDialog((props)=>{
@@ -622,7 +639,6 @@ class EditOverlaysDialog extends React.Component{
                         reject(0);
                     }}
                     updateCallback={(changed)=>{
-                        this.updateDimensions();
                         if (!changed.name) {
                             reject("missing overlay name");
                         }
@@ -698,7 +714,6 @@ class EditOverlaysDialog extends React.Component{
             if (isSameItem(overlays[i],item)) {
                 overlays.splice(i, 1);
                 this.updateList(overlays);
-                this.updateDimensions();
             }
         }
     }
@@ -739,10 +754,6 @@ class EditOverlaysDialog extends React.Component{
             return null;
         }
         let hasCurrent=this.props.current.getName() !== undefined;
-        if (this.sizeCount !== this.state.sizeCount && this.props.updateDimensions){
-            this.sizeCount=this.state.sizeCount;
-            window.setTimeout(self.props.updateDimensions,100);
-        }
         let hasOverlays=true; //TODO
         let hasDefaults=this.props.current.hasDefaults();
         let selectedItem;
@@ -765,7 +776,6 @@ class EditOverlaysDialog extends React.Component{
                     label="use default"
                     onChange={(nv)=>{
                         this.setState({useDefault:nv,isChanged:true});
-                        this.updateDimensions();
                         }}
                     value={this.state.useDefault||false}/>}
                 <ItemList

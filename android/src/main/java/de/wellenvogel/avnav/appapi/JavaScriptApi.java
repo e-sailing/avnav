@@ -10,24 +10,114 @@ import android.widget.Toast;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+
 import de.wellenvogel.avnav.fileprovider.UserFileProvider;
 import de.wellenvogel.avnav.main.Constants;
+import de.wellenvogel.avnav.main.MainActivity;
 import de.wellenvogel.avnav.main.R;
-import de.wellenvogel.avnav.main.WebViewFragment;
 import de.wellenvogel.avnav.util.AvnLog;
+import de.wellenvogel.avnav.util.AvnUtil;
+import de.wellenvogel.avnav.worker.RemoteChannel;
 
 //potentially the Javascript interface code is called from the Xwalk app package
 //so we have to be careful to always access the correct resource manager when accessing resources!
 //to make this visible we pass a resource manager to functions called from here that open dialogs
 public class JavaScriptApi {
+    private class ChannelSocket implements IWebSocket{
+        private String url;
+        private IWebSocketHandler handler;
+        int id;
+        private final ArrayList<String> remoteMessages=new ArrayList<>();
+        private boolean open=true;
+        ChannelSocket(String url,IWebSocketHandler handler,int id){
+            this.url = url;
+            this.handler=handler;
+            this.id=id;
+            synchronized (remoteMessages){
+                remoteMessages.clear();
+            }
+            handler.onConnect(this);
+        }
+        @Override
+        public String getUrl() {
+            return url;
+        }
+
+        @Override
+        public boolean send(String msg) throws IOException {
+            synchronized (remoteMessages){
+                if (remoteMessages.size() < 10) remoteMessages.add(msg);
+                else return false;
+            }
+            mainActivity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    mainActivity.sendEventToJs(Constants.JS_REMOTE_MESSAGE,id);
+                }
+            });
+            return true;
+        }
+
+        @Override
+        public int getId() {
+            return id;
+        }
+
+        @Override
+        public void close(boolean callHandler) {
+            localClose(callHandler);
+            synchronized (sockets){
+                sockets.remove(getId());
+            }
+
+        }
+
+        public void localClose(boolean callHandler){
+            open=false;
+            if (callHandler) handler.onClose(this);
+            synchronized (remoteMessages){
+                remoteMessages.clear();
+            }
+            mainActivity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    mainActivity.sendEventToJs(Constants.JS_REMOTE_CLOSE,id);
+                }
+            });
+        }
+
+        @Override
+        public boolean isOpen() {
+            return open;
+        }
+
+        public String getMessage(){
+           synchronized (remoteMessages){
+               if (remoteMessages.size()>0){
+                   return remoteMessages.remove(0);
+               }
+               return null;
+           }
+        }
+        public void msgFromJs(String msg){
+            if (! isOpen()) return;
+            handler.onReceive(msg,this);
+        }
+    }
     private UploadData uploadData=null;
     private RequestHandler requestHandler;
-    private WebViewFragment fragment;
+    private MainActivity mainActivity;
     private boolean detached=false;
-
-    public JavaScriptApi(WebViewFragment fragment, RequestHandler requestHandler) {
+    final HashMap<Integer,ChannelSocket> sockets=new HashMap<>();
+    private int getNextSocketId(){
+        return WebSocket.getNextId();
+    }
+    public JavaScriptApi(MainActivity mainActivity, RequestHandler requestHandler) {
         this.requestHandler = requestHandler;
-        this.fragment=fragment;
+        this.mainActivity = mainActivity;
     }
 
     public void saveFile(Uri uri){
@@ -38,6 +128,12 @@ public class JavaScriptApi {
         detached=true;
         if (uploadData != null){
             uploadData.interruptCopy(true);
+        }
+        synchronized (sockets){
+            for (ChannelSocket socket:sockets.values()){
+                socket.localClose(true);
+            }
+            sockets.clear();
         }
     }
 
@@ -58,12 +154,12 @@ public class JavaScriptApi {
         }
         Uri data = null;
         if (type.equals("layout")) {
-            data = LayoutHandler.getUriForLayout(name);
+            data = LayoutHandler.getUriForLayout(url);
         } else {
             try {
                 data = UserFileProvider.createContentUri(type, name,url);
             } catch (Exception e) {
-                AvnLog.e("unable to create content uri for " + name);
+                AvnLog.e("unable to create content uri for " + name,e);
             }
         }
         if (data == null) return false;
@@ -78,8 +174,8 @@ public class JavaScriptApi {
         if (type.equals("route") || type.equals("track")) {
             shareIntent.setType("application/gpx+xml");
         }
-        String title = requestHandler.activity.getText(R.string.selectApp) + " " + name;
-        requestHandler.activity.startActivity(Intent.createChooser(shareIntent, title));
+        String title = mainActivity.getText(R.string.selectApp) + " " + name;
+        mainActivity.startActivity(Intent.createChooser(shareIntent, title));
         return true;
     }
 
@@ -95,8 +191,11 @@ public class JavaScriptApi {
     public String handleUpload(String url,String data){
         if (detached) return null;
         try {
-            JSONObject rt= requestHandler.handleUploadRequest(Uri.parse(url),new PostVars(data));
-            return rt.getString("status");
+            RequestHandler.NavResponse rt= requestHandler.handleNavRequestInternal(Uri.parse(url),new PostVars(data),null);
+            if (! rt.isJson() || ! (rt.getJson() instanceof JSONObject)){
+                return "invalid post request";
+            }
+            return ((JSONObject)(rt.getJson())).getString("status");
         } catch (Exception e) {
             AvnLog.e("error in upload request for "+url+":",e);
             return e.getMessage();
@@ -126,27 +225,26 @@ public class JavaScriptApi {
     @JavascriptInterface
     public boolean requestFile(String type,long id,boolean readFile){
         if (detached) return false;
-        RequestHandler.KeyValue<Integer> title= RequestHandler.typeHeadings.get(type);
+        AvnUtil.KeyValue<Integer> title= RequestHandler.typeHeadings.get(type);
         if (title == null){
             AvnLog.e("unknown type for request file "+type);
             return false;
         }
         if (uploadData != null) uploadData.interruptCopy(true);
-        if (fragment.getActivity() == null) return false;
-        uploadData=new UploadData(fragment, requestHandler.getHandler(type),id,readFile);
+        uploadData=new UploadData(mainActivity, requestHandler.getHandler(type),id,readFile);
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("*/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        Resources res=fragment.getResources();
+        Resources res= mainActivity.getResources();
         try {
-            fragment.startActivityForResult(
+            mainActivity.startActivityForResult(
                     Intent.createChooser(intent,
                             //TODO: be more flexible for types...
                             res.getText(title.value)),
                     Constants.FILE_OPEN);
         } catch (android.content.ActivityNotFoundException ex) {
             // Potentially direct the user to the Market with a Dialog
-            Toast.makeText(fragment.getActivity(), res.getText(R.string.installFileManager), Toast.LENGTH_SHORT).show();
+            Toast.makeText(mainActivity, res.getText(R.string.installFileManager), Toast.LENGTH_SHORT).show();
             return false;
         }
         return true;
@@ -225,27 +323,21 @@ public class JavaScriptApi {
     @JavascriptInterface
     public void goBack() {
         if (detached) return;
-        requestHandler.activity.runOnUiThread(
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        requestHandler.activity.goBack();
-                    }
-                });
+        mainActivity.mainGoBack();
     }
 
     @JavascriptInterface
     public void acceptEvent(String key,int num){
         if (detached) return;
         if (key != null && key.equals("backPressed")) {
-           fragment.jsGoBackAccepted(num);
+           mainActivity.jsGoBackAccepted(num);
         }
     }
 
     @JavascriptInterface
     public void showSettings(){
         if (detached) return;
-        requestHandler.activity.showSettings(false);
+        mainActivity.showSettings(false);
     }
 
     @JavascriptInterface
@@ -259,9 +351,9 @@ public class JavaScriptApi {
         Intent goDownload = new Intent(Intent.ACTION_VIEW);
         goDownload.setData(Uri.parse(url));
         try {
-            requestHandler.activity.startActivity(goDownload);
+            mainActivity.startActivity(goDownload);
         } catch (Exception e) {
-            Toast.makeText(requestHandler.activity, e.getLocalizedMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(mainActivity, e.getLocalizedMessage(), Toast.LENGTH_LONG).show();
             return;
         }
     }
@@ -269,8 +361,8 @@ public class JavaScriptApi {
     public String getVersion(){
         if (detached) return null;
         try {
-            String versionName = requestHandler.activity.getPackageManager()
-                    .getPackageInfo(requestHandler.activity.getPackageName(), 0).versionName;
+            String versionName = mainActivity.getPackageManager()
+                    .getPackageInfo(mainActivity.getPackageName(), 0).versionName;
             return versionName;
         } catch (PackageManager.NameNotFoundException e) {
             return "<unknown>";
@@ -278,9 +370,76 @@ public class JavaScriptApi {
     }
     @JavascriptInterface
     public boolean dimScreen(int percent){
-        fragment.setBrightness(percent);
+        mainActivity.setBrightness(percent);
         return true;
     }
+    @JavascriptInterface
+    public void launchBrowser(){
+        mainActivity.launchBrowser();
+    }
 
+    /**
+     * get a newly attached device
+     * will be called by js code after startup and after a reload event
+     * @return a json string with typeName and initialParameters
+     */
+    @JavascriptInterface
+    public String getAttachedDevice(){
+        return mainActivity.getAttachedDevice();
+    }
+
+    @JavascriptInterface
+    public void dialogClosed(){
+        mainActivity.dialogClosed();
+    }
+
+    @JavascriptInterface
+    public int channelOpen(String url){
+        IWebSocketHandler handler=requestHandler.getWebSocketHandler(url);
+        if (handler == null) return -1;
+        ChannelSocket socket=new ChannelSocket(url,handler,getNextSocketId());
+        synchronized (sockets){
+            sockets.put(socket.getId(),socket);
+        }
+        return socket.getId();
+    }
+    @JavascriptInterface
+    public void channelClose(int id){
+        ChannelSocket socket;
+        synchronized (sockets) {
+            socket = sockets.get(id);
+        }
+        if (socket == null) return;
+        socket.close(true);
+    }
+    @JavascriptInterface
+    public String readChannelMessage(int id){
+        ChannelSocket socket;
+        synchronized (sockets) {
+            socket = sockets.get(id);
+        }
+        if (socket == null) return null;
+        return socket.getMessage();
+
+    }
+    @JavascriptInterface
+    public boolean sendChannelMessage(int id,String msg){
+        ChannelSocket socket;
+        synchronized (sockets) {
+            socket = sockets.get(id);
+        }
+        if (socket == null) return false;
+        socket.msgFromJs(msg);
+        return true;
+    }
+    @JavascriptInterface
+    public boolean isChannelOpen(int id){
+        ChannelSocket socket;
+        synchronized (sockets) {
+            socket = sockets.get(id);
+        }
+        if (socket == null) return false;
+        return socket.isOpen();
+    }
 
 }

@@ -1,7 +1,6 @@
 import globalStore from '../util/globalstore.jsx';
 import keys from '../util/keys.jsx';
 import Requests from '../util/requests.js';
-import Promise from 'promise';
 import Toast from './Toast.jsx';
 
 const readAddOns = function (opt_showToast,opt_includeInvalid) {
@@ -49,12 +48,13 @@ const findAddonByUrl=(addons,url)=>{
  * @param title
  * @returns {*}
  */
-const updateAddon=(name,url,icon,title)=>{
+const updateAddon=(name,url,icon,title,newWindow)=>{
    return Requests.getJson("?request=api&type=addon&command=update",{},{
        url:url,
        title: title,
        icon:icon,
-       name:name
+       name:name,
+       newWindow: newWindow
    });
 };
 

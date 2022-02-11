@@ -41,8 +41,37 @@ let widgetList=[
             value: keys.nav.gps.course,
             isAverage:keys.nav.gps.courseAverageOn
         },
-        formatter: 'formatDirection'
+        formatter: 'formatDirection',
+        editableParameters: {
+            formatterParameters: false
+        }
 
+    },
+    {
+        name: 'HDM',
+        default: "---",
+        unit: "\u00b0",
+        caption: 'HDM',
+        storeKeys:{
+            value: keys.nav.gps.headingMag
+        },
+        formatter: 'formatDirection',
+        editableParameters: {
+            formatterParameters: false
+        }
+    },
+    {
+        name: 'HDT',
+        default: "---",
+        unit: "\u00b0",
+        caption: 'HDT',
+        storeKeys:{
+            value: keys.nav.gps.headingTrue
+        },
+        formatter: 'formatDirection',
+        editableParameters: {
+            formatterParameters: false
+        }
     },
     {
         name: 'Position',
@@ -86,7 +115,10 @@ let widgetList=[
         storeKeys:{
             value: keys.nav.wp.course
         },
-        formatter: 'formatDirection'
+        formatter: 'formatDirection',
+        editableParameters: {
+            formatterParameters: false
+        }
     },
     {
         name: 'VMG',
@@ -100,6 +132,16 @@ let widgetList=[
 
     },
     {
+        name: 'STW',
+        default: '0.0',
+        unit: 'kn',
+        caption: 'STW',
+        storeKeys:{
+            value: keys.nav.gps.waterSpeed
+        },
+        formatter: 'formatSpeed'
+    },
+    {
         name: 'WindAngle',
         default: "---",
         unit: "\u00b0",
@@ -107,7 +149,10 @@ let widgetList=[
         storeKeys:{
             value:keys.nav.gps.windAngle
         },
-        formatter: 'formatDirection'
+        formatter: 'formatDirection',
+        editableParameters: {
+            formatterParameters: false
+        }
     },
     {
         name: 'WindSpeed',
@@ -121,6 +166,17 @@ let widgetList=[
         formatterParameters: [2,1]
     },
     {
+        name: 'WaterTemp',
+        default: '---',
+        unit: '°',
+        caption: 'Water Temp',
+        storeKeys: {
+            value: keys.nav.gps.waterTemp
+        },
+        formatter: 'formatTemperature',
+        formatterParameters: 'celsius'
+    },
+    {
         name: 'AnchorBearing',
         default: "---",
         unit: "\u00b0",
@@ -129,6 +185,9 @@ let widgetList=[
             value:keys.nav.anchor.direction
         },
         formatter: 'formatDirection',
+        editableParameters: {
+            formatterParameters: false
+        }
     },
     {
         name: 'AnchorDistance',
@@ -234,7 +293,7 @@ let widgetList=[
             visible: keys.properties.showDepth
         },
         formatter: 'formatDecimal',
-        formatterParameters: [3,1]
+        formatterParameters: [3,1,true]
     },
     {
         name: 'XteDisplay',
@@ -257,7 +316,13 @@ let widgetList=[
     {
         name: 'RteCombine',
         caption: '',
-        children: [{name:'RteDistance'},{name:'RteEta'}]
+        children: [{name:'RteDistance'},{name:'RteEta'}],
+        editableParameters:{
+            formatter: false,
+            unit: false,
+            formatterParameters: false,
+            value: false
+        }
     },
     {
         name: 'Alarm',

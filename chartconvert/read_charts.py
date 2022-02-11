@@ -1,7 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
-from compiler.pyassem import CONV
+
 
 ###############################################################################
 # Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
@@ -38,33 +38,30 @@ from compiler.pyassem import CONV
 #"lower" tile means tile of a lower zoomlevel
 
 
-# read_charts.py:
-import gdal
-import osr
-from gdalconst import *
-import os
-import sys
+import io
 import logging
-import shutil
-import itertools
-from optparse import OptionParser
-import xml.sax as sax 
-import xml.sax.saxutils
-from PIL import Image
-import operator
 import math
+import os
+import queue
+import re
 import shutil
-from stat import *
-import Queue
+import subprocess
+import sys
 import threading
 import time
-import site
-import subprocess
-import re
-import generate_efficient_map_file
-import create_gemf
-import StringIO
 import traceback
+import xml.sax as sax
+import xml.sax.saxutils
+from optparse import OptionParser
+
+from osgeo import osr
+from PIL import Image
+from osgeo.gdalconst import *
+# read_charts.py:
+from osgeo import gdal
+
+import create_gemf
+import generate_efficient_map_file
 
 hasNvConvert=False
 try:
@@ -210,13 +207,13 @@ TilerTools=None
 
 
 def ld(*parms):
-    logging.debug(' '.join(itertools.imap(repr,parms)))
+    logging.debug(' '.join(map(repr,parms)))
 
 def warn(txt):
   logging.warning(txt)
 def log(txt):
   logstr=time.strftime("%Y/%m/%d-%H:%M:%S ",time.localtime())+txt
-  logging.info(logstr.decode("utf-8","replace"))
+  logging.info(logstr)
   
 #---------------------------
 #tiler tools stuff
@@ -232,7 +229,7 @@ def findTilerTools(ttdir=None):
     if os.path.exists(os.path.join(ttdir,"gdal_tiler.py")):
       log("using tiler tools from "+ttdir)
       return ttdir
-  print "unable to find gdal_tiler.py, either set the environment variable TILERTOOLS or use the option -a to point to the tile_tools directory"
+  print("unable to find gdal_tiler.py, either set the environment variable TILERTOOLS or use the option -a to point to the tile_tools directory")
   sys.exit(1)
 
 
@@ -240,7 +237,7 @@ def findTilerTools(ttdir=None):
 #bounds: ullon,ullat,lrlon,lrlat
 
 def createBoundingsXml(bounds,title):
-  return boundingbox_xml % {"title": sax.saxutils.escape(title),
+  return boundingbox_xml % {"title": sax.saxutils.escape(str(title)),
                                             "minlon": bounds[0],
                                             "maxlat": bounds[1],
                                             "maxlon": bounds[2],
@@ -248,7 +245,7 @@ def createBoundingsXml(bounds,title):
   
 #---------------------------
 #a description of a chart to be converted
-class ChartEntry():
+class ChartEntry(object):
   #bounds: upperleftlon,upperleftlat,lowerrightlon,lowerrightlat
   def __init__(self,filename,title,mpp,bounds,layer):
     self.filename=filename
@@ -269,7 +266,7 @@ class ChartEntry():
   def getXmlParam(self):
     rt={}
     p=self.getParam()
-    for k in p.keys():
+    for k in list(p.keys()):
       if type(p[k]) is str:
         rt[k]=xml.sax.saxutils.escape(p[k])
       else:
@@ -321,7 +318,7 @@ class ChartEntry():
     
 
 
-class ChartList():
+class ChartList(object):
   def __init__(self,mercator):
     self.tlist=[]
     self.mercator=mercator
@@ -374,10 +371,10 @@ class ChartList():
     if sdir is not None:
       ld("sdir",sdir)
       if not os.access(sdir,os.F_OK):
-        os.makedirs(sdir,0777)
+        os.makedirs(sdir,0o777)
       fname=os.path.join(sdir,LISTFILE)
-    h=open(fname,"w")
-    print >>h, self.toXML()
+    h=open(fname,"w",encoding='utf-8')
+    print(self.toXML(), file=h)
     log("chartlist saved to "+fname)
     h.close()
 
@@ -475,7 +472,7 @@ class ChartListHandler(sax.handler.ContentHandler):
       self.zoom_layers.append((self.layerZoom,self.layerName))
     elif name == "chart":
       self.fname = attrs["filename"]
-      self.title = attrs["title"].encode('ascii','ignore') 
+      self.title = attrs["title"]
       self.mpp = float(attrs["mpp"])
       ld("Parser chart",self.fname,self.title,self.mpp)
     elif name == "BoundingBox":
@@ -507,7 +504,7 @@ class ChartListHandler(sax.handler.ContentHandler):
 #store the data for a tile
 #the data is either the complete file content as a raw buffer or an PIL image
 #mode:
-class TileStore:
+class TileStore(object):
   NONE='none'
   PIL='pil'
   RAW='raw'
@@ -542,16 +539,16 @@ class TileStore:
     if not os.path.exists(fname):
       ld("unable to load tile ",self.tile,fname)
       return
-    fh=os.open(fname, "r")
-    self.data=os.read(fh,os.path.getsize(fname))
-    os.close(fh)
+    fh=open(fname, "rb")
+    self.data=fh.read(os.path.getsize(fname))
+    fh.close()
     self.mode=TileStore.RAW
   def write(self,basedir):
     fname=self.__getFname__(basedir)
     odir=os.path.dirname(fname)
     if not os.path.isdir(odir):
       try:
-        os.makedirs(odir, 0777)
+        os.makedirs(odir, 0o777)
       except:
         pass
     if os.path.exists(fname):
@@ -561,15 +558,15 @@ class TileStore:
     if self.mode == TileStore.PIL:
       self.data.save(fname)
       return
-    fh=os.open(fname,"w")
-    os.write(fh, self.data)
+    fh=open(fname,"wb")
+    fh.write(self.data)
   #get the image data as buffer
   def getData(self):
     if self.mode == TileStore.NONE:
       return ""
     if self.mode==TileStore.RAW:
       return self.data
-    buf=StringIO.StringIO()
+    buf=io.BytesIO()
     self.data.save(buf,format="PNG")
     return buf.getvalue()
     
@@ -674,7 +671,7 @@ class TileStore:
 #contains at level 0 one tile of the min zoom level
 #and on the higher levels all tiles belonging to the layer up to the max zoom level
 
-class BuildPyramid:    
+class BuildPyramid(object):    
   def __init__(self,layercharts,layername,outdir,writer=None):
     self.layercharts=layercharts
     self.layername=layername
@@ -873,7 +870,7 @@ class PyramidHandler(threading.Thread):
     while True:
       try:
         pyramid=self.queue.get(True,60);
-      except Queue.Empty:
+      except queue.Empty:
         break
       pyramid.handlePyramid()
       ld("handler thread pyramid ready")
@@ -885,7 +882,7 @@ class PyramidHandler(threading.Thread):
 #between lat/lon and mercator units (m)
 #additionally we have to convert our maps onto this mercator projection
 
-class Mercator:
+class Mercator(object):
   # create a geotransform towards the target projection
   # Global Mercator (EPSG:3857) - see http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
   TARGET_SRSP4='+proj=merc +a=6378137 +b=6378137 +nadgrids=@null +wktext'
@@ -1138,7 +1135,7 @@ def createChartList(args,outdir,mercator):
   charts=ChartList(mercator)
   for chart in chartlist:
     log("handling "+chart)
-    for xt in converters.keys():
+    for xt in list(converters.keys()):
       if chart.upper().endswith(xt.upper()):
         oname=chart
         (base,ext)=os.path.splitext(os.path.basename(chart))
@@ -1246,12 +1243,12 @@ def createLowerLevelTile(outtile,intiles):
 def mergeChartTiles(outdir,layername,outtile,celist, alwaysPil=True):
   if not os.path.isdir(outdir):
     ld("create tile dir",outdir)
-    os.makedirs(outdir,0777)
+    os.makedirs(outdir,0o777)
   ld("mergeChartTiles outdir",outdir,"layer",layername,"tile",outtile,"charts",str(celist))
   tiledir=os.path.join(outdir,OUTTILES,layername)
   if not os.path.isdir(tiledir):
     try:
-      os.makedirs(tiledir,0777)
+      os.makedirs(tiledir,0o777)
     except:
       pass
   outts=TileStore(outtile)
@@ -1397,7 +1394,7 @@ def createPyramids(chartlist):
 
 #-------------------------------------
 #a class used to write to a gemf file
-class WriterGemf():
+class WriterGemf(object):
   def __init__(self,gemfname):
     self.gemf=create_gemf.GemfWriter(gemfname,self)
     self.name=gemfname
@@ -1445,7 +1442,7 @@ def mergeLayerTiles(chartlist,outdir,layerindex,tilespyramid,gemf,onlyOverview=F
       log("layer "+layername+" has no tiles")
       return (layerminzoom,layermaxzoom)
     #TODO: skip if we have no charts at all
-    requestQueue=Queue.Queue(0)
+    requestQueue=queue.Queue(0)
     for x in range(int(options.threads)):
       t=PyramidHandler(requestQueue)
       t.setDaemon(True)
@@ -1485,7 +1482,7 @@ def mergeLayerTiles(chartlist,outdir,layerindex,tilespyramid,gemf,onlyOverview=F
         sys.stdout.flush()
       time.sleep(0.05)
     if options.verbose != 0:
-      print
+      print()
     log("all merge jobs started for layer "+layername+", waiting for background threads to finish their jobs")
     requestQueue.join()
     log("tile merge finished for layer "+layername)
@@ -1512,8 +1509,8 @@ def mergeLayerTiles(chartlist,outdir,layerindex,tilespyramid,gemf,onlyOverview=F
                       "tile_mime":"x-png",
                       "tilesets":tilesets}
   if not os.path.exists(layerdir):
-    os.makedirs(layerdir,0777)
-  with open(layerxmlfile,"w") as f:
+    os.makedirs(layerdir,0o777)
+  with open(layerxmlfile,"w",encoding='utf-8') as f:
     f.write(outstr)
   log(layerxmlfile+" written")
   return (layerminzoom,layermaxzoom)
@@ -1576,7 +1573,7 @@ def mergeAllTiles(outdir,mercator,gemf=None,onlyOverview=False):
               "tilemaps":tilemaps,
               "bounding":createBoundingsXml(chartlist.getChartsBoundingBox(), "avnav")
                               }
-  with open(overviewfname,"w") as f:
+  with open(overviewfname,"w",encoding='utf-8') as f:
     f.write(overviewstr)
   log(overviewfname+" written, successfully finished")
 
@@ -1692,11 +1689,11 @@ def main(argv):
     raise Exception("no basedir provided as option and default basedir could not be set from environment")
   ld("basedir",basedir)
   if not os.path.isdir(basedir):
-    os.makedirs(basedir,0777)
+    os.makedirs(basedir,0o777)
   ld(os.name)
   ld(options)
   if (len(args) < 1):
-    print usage
+    print(usage)
     sys.exit(1)
   TilerTools=findTilerTools(options.ttdir)
   mercator=Mercator()
@@ -1721,7 +1718,7 @@ def main(argv):
     outname=options.outname
   else:
     if not os.path.exists(args[0]):
-      print "path %s does not exist" % (args[0])
+      print("path %s does not exist" % (args[0]))
       sys.exit(1)
     dummy,outname=os.path.split(args[0])
     if outname is None or outname == "":
@@ -1729,7 +1726,7 @@ def main(argv):
       dummy,outname=os.path.split(dummy)
     outname=re.compile('\.[^.]*$').sub("",outname)
   if outname is None or outname == "":
-    print "cannot use empty name as outname"
+    print("cannot use empty name as outname")
     sys.exit(1)
   ld("outname",outname)
   log("using outname %s" %(outname))
@@ -1740,7 +1737,7 @@ def main(argv):
       log("no charts to convert")
     else:
       if not os.path.isdir(basetiles):
-        os.makedirs(basetiles, 0777)
+        os.makedirs(basetiles, 0o777)
       createChartList(args,outdir,mercator)
   if mode == "generate" or mode == "all" or mode == "base":
     assert os.path.isdir(outdir),"the directory "+outdir+" does not exist, run mode chartlist before"
@@ -1749,7 +1746,7 @@ def main(argv):
     assert os.path.isdir(outdir),"the directory "+outdir+" does not exist, run mode chartlist before"
     mapdir=os.path.join(outdir,OUTTILES)
     if not os.path.isdir(gemfdir):
-      os.makedirs(gemfdir,0777)
+      os.makedirs(gemfdir,0o777)
     gemfname=os.path.join(basedir,OUT,outname+".gemf")
   if mode == "merge" or mode == "all" or mode == "generate" or mode == "overview":
     if options.newgemf:

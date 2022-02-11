@@ -23,7 +23,6 @@
  ###############################################################################
  */
 
-import Promise from 'promise';
 import Requests from '../util/requests.js';
 import ChartSourceBase from './chartsourcebase.js';
 import {Style as olStyle, Stroke as olStroke, Circle as olCircle, Icon as olIcon, Fill as olFill} from 'ol/style';
@@ -152,7 +151,7 @@ class KmlChartSource extends ChartSourceBase{
             });
             let layerOptions={
                 source: vectorSource,
-                opacity: this.chartEntry.opacity!==undefined?this.chartEntry.opacity:1
+                opacity: this.chartEntry.opacity!==undefined?parseFloat(this.chartEntry.opacity):1
             };
             if (this.chartEntry.minZoom !== undefined) layerOptions.minZoom=this.chartEntry.minZoom;
             if (this.chartEntry.maxZoom !== undefined) layerOptions.maxZoom=this.chartEntry.maxZoom;
@@ -205,6 +204,7 @@ class KmlChartSource extends ChartSourceBase{
         }
         rt.name=feature.get('name');
         rt.sym=feature.get('sym');
+        this.formatFeatureInfo(rt,feature,coordinates);
         return rt;
     }
 }
@@ -254,6 +254,7 @@ export const readFeatureInfoFromKml=(kml)=>{
     rt[stylePrefix+'circleWidth']=true;
     rt.allowOnline=true;
     rt.showText=true;
+    rt.allowFormatter=true;
     return rt;
 
 }

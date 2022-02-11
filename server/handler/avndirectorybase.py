@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013-2020 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2013-2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -28,13 +27,13 @@
 #  parts contributed by Matt Hawkins http://www.raspberrypi-spy.co.uk/
 #
 ###############################################################################
-import urllib
+import json
+import urllib.request, urllib.parse, urllib.error
 from zipfile import ZipFile
 
 from avnav_nmea import *
 from avnav_worker import *
-from httphandler import AVNDownload
-
+from avnav_util import AVNDownload
 
 
 class AVNDirectoryListEntry(object):
@@ -43,7 +42,7 @@ class AVNDirectoryListEntry(object):
   '''
   def serialize(self):
     return dict((key,value)
-                for key,value in self.__dict__.iteritems()
+                for key,value in self.__dict__.items()
                 if value is not None and not key.startswith("_") and key not in self.getFilteredKeys())
 
   @classmethod
@@ -54,7 +53,7 @@ class AVNDirectoryListEntry(object):
     self.name=name
     self.type=type
     self.prefix=prefix
-    self.url=prefix+"/"+urllib.quote(name.encode('utf-8'))
+    self.url=prefix+"/"+urllib.parse.quote(name.encode('utf-8'))
     self.time=time
     self.size=size
     self.canDelete=canDelete
@@ -100,17 +99,14 @@ class AVNDirectoryHandlerBase(AVNWorker):
 
   @classmethod
   def nameToUrl(cls,name):
-    return cls.getPrefix()+"/"+urllib.quote(name.encode('utf-8'))
+    return cls.getPrefix()+"/"+urllib.parse.quote(name.encode('utf-8'))
 
   @classmethod
   def preventMultiInstance(cls):
     return True
   @classmethod
   def autoInstantiate(cls):
-    return """
-      <%s>
-  	  </%s>
-      """ % (cls.getConfigName(), cls.getConfigName())
+    return True
 
   @classmethod
   def getListEntryClass(cls):
@@ -145,14 +141,13 @@ class AVNDirectoryHandlerBase(AVNWorker):
     self.baseDir=None
     self.type=type
     self.httpServer=None
-    self.waitCondition = threading.Condition()
     self.itemList={}
 
-  def start(self):
+  def startInstance(self, navdata):
     self.httpServer=self.findHandlerByName('AVNHttpServer')
     if self.httpServer is None:
       raise Exception("unable to find AVNHttpServer")
-    AVNWorker.start(self)
+    super().startInstance(navdata)
 
   def onItemAdd(self,itemDescription):
     # type: (AVNDirectoryListEntry) -> AVNDirectoryListEntry or None
@@ -186,13 +181,6 @@ class AVNDirectoryHandlerBase(AVNWorker):
   def periodicRun(self):
     pass
 
-  def wakeUp(self):
-    self.waitCondition.acquire()
-    try:
-      self.waitCondition.notify_all()
-    except:
-      pass
-    self.waitCondition.release()
 
   def getSleepTime(self):
     return self.getFloatParam('interval')
@@ -213,6 +201,7 @@ class AVNDirectoryHandlerBase(AVNWorker):
     self.onItemRemove(item)
 
   def _scanDirectory(self):
+    AVNLog.debug("scan directory %s",self.baseDir)
     if not self.autoScanIncludeDirectories() and len(self.getAutoScanExtensions()) < 1:
       return
     try:
@@ -220,7 +209,7 @@ class AVNDirectoryHandlerBase(AVNWorker):
         AVNLog.debug("basedir %s is no directory",self.baseDir)
         return
       newContent=self.listDirectory(self.autoScanIncludeDirectories())
-      oldContent=self.itemList.values()
+      oldContent=list(self.itemList.values())
       currentlist = []
       for f in newContent:
         name=f.name
@@ -258,40 +247,31 @@ class AVNDirectoryHandlerBase(AVNWorker):
 
   # thread run method - just try forever
   def run(self):
-    self.setName(self.getThreadPrefix())
     if not os.path.exists(self.baseDir):
       AVNLog.info("creating user dir %s"%self.baseDir)
       os.makedirs(self.baseDir)
     if not os.path.exists(self.baseDir):
-      self.setInfo("main","unable to create %s"%self.baseDir,AVNWorker.Status.ERROR)
+      self.setInfo("main","unable to create %s"%self.baseDir,WorkerStatus.ERROR)
       AVNLog.error("unable to create user dir %s"%self.baseDir)
       return
     self.onPreRun()
-    sleepTime=self.getSleepTime()
-    self.setInfo('main', "handling %s"%self.baseDir, AVNWorker.Status.NMEA)
-    while True:
+    self.setInfo('main', "handling %s"%self.baseDir, WorkerStatus.NMEA)
+    while not self.shouldStop():
       try:
         if len(self.getAutoScanExtensions()) > 0 or self.autoScanIncludeDirectories():
           self._scanDirectory()
         self.periodicRun()
       except:
         AVNLog.debug("%s: exception in periodic run: %s",self.getName(),traceback.format_exc())
-      self.waitCondition.acquire()
-      try:
-        self.waitCondition.wait(sleepTime)
-      except:
-        pass
-      self.waitCondition.release()
+      sleepTime = self.getSleepTime()
+      AVNLog.debug("main loop periodic run sleeping %f seconds",sleepTime)
+      self.wait(sleepTime)
+      AVNLog.debug("main loop periodic run")
 
   @classmethod
   def canDelete(self):
     return True
 
-
-  def deleteFromOverlays(self,name):
-    chartHandler=self.findHandlerByName('AVNChartHandler')
-    if chartHandler is not None:
-      chartHandler.deleteFromOverlays(self.type,name)
 
   def handleDelete(self,name):
     if not self.canDelete():
@@ -304,7 +284,9 @@ class AVNDirectoryHandlerBase(AVNWorker):
     if not os.path.exists(filename):
       raise Exception("file %s not found" % filename)
     os.unlink(filename)
-    self.deleteFromOverlays(name)
+    chartHandler = self.findHandlerByName('AVNChartHandler')
+    if chartHandler is not None:
+      chartHandler.deleteFromOverlays(self.type, name)
 
   @classmethod
   def canList(cls):
@@ -316,8 +298,8 @@ class AVNDirectoryHandlerBase(AVNWorker):
     data = []
     if not os.path.exists(self.baseDir):
       return []
-    for f in os.listdir(unicode(self.baseDir)):
-      fullname = os.path.join(unicode(self.baseDir), f)
+    for f in os.listdir(str(self.baseDir)):
+      fullname = os.path.join(str(self.baseDir), f)
       isDir=False
       if not os.path.isfile(fullname):
         if not includeDirs:
@@ -386,9 +368,11 @@ class AVNDirectoryHandlerBase(AVNWorker):
     handler.send_response(200)
     handler.send_header("Content-type", handler.getMimeType(entryName))
     handler.send_header("Content-Length", entry.file_size)
-    handler.send_header("Last-Modified", handler.date_time_string())
+    fs = os.stat(zipname)
+    handler.send_header("Last-Modified", handler.date_time_string(fs.st_mtime))
     handler.end_headers()
-    handler.wfile.write(zip.read(entry))
+    if handler.command.lower() != 'head':
+      handler.wfile.write(zip.read(entry))
     return True
 
   def getPathFromUrl(self,path,handler=None,requestParam=None):
@@ -481,7 +465,7 @@ class AVNDirectoryHandlerBase(AVNWorker):
       fh = open(outname, "wb")
       if fh is None:
         raise Exception("unable to write to %s" % outname)
-      fh.write(decoded.encode('utf-8'))
+      fh.write(data.encode('utf-8'))
       fh.close()
     else:
       handler.writeFileFromInput(outname, rlen, overwrite)

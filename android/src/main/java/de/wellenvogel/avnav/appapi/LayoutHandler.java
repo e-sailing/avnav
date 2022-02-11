@@ -1,6 +1,6 @@
 package de.wellenvogel.avnav.appapi;
 
-import android.app.Activity;
+import android.content.Context;
 import android.net.Uri;
 
 import org.json.JSONArray;
@@ -24,26 +24,28 @@ import de.wellenvogel.avnav.util.AvnUtil;
 public class LayoutHandler implements INavRequestHandler{
     String systemDir=null; //base path at assets
     File userDir=null;
-    Activity activity=null;
+    Context context =null;
+    static final String PREFIX="layout";
 
 
-    static class LayoutInfo implements INavRequestHandler.IJsonObect {
+    static class LayoutInfo implements AvnUtil.IJsonObect {
         public static final String USERPREFIX="user.";
         public static final String SYSTEMPREFIX="system.";
         public String name;
         public long mtime;
-        public boolean canDelete;
+        public boolean isUser;
         @Override
         public JSONObject toJson() throws JSONException {
             JSONObject rt=new JSONObject();
-            rt.put("name",(canDelete?USERPREFIX:SYSTEMPREFIX)+name);
-            rt.put("canDelete",canDelete);
+            rt.put("name",(isUser?USERPREFIX:SYSTEMPREFIX)+name);
+            rt.put("url",PREFIX+"/"+(isUser?USERPREFIX:SYSTEMPREFIX)+name+".json");
+            rt.put("canDelete",isUser);
             rt.put("time",mtime/1000);
             return rt;
         }
-        public LayoutInfo(String name, boolean canDelete,long mtime){
+        public LayoutInfo(String name, boolean isUser,long mtime){
             this.name=name;
-            this.canDelete=canDelete;
+            this.isUser=isUser;
             this.mtime=mtime;
         }
     }
@@ -59,7 +61,7 @@ public class LayoutHandler implements INavRequestHandler{
     public boolean handleUpload(PostVars postData, String name, boolean ignoreExisting) throws Exception {
         if (postData == null) throw new Exception("no data");
         if (!userDir.isDirectory()) throw new IOException("user dir is no directory");
-        String fileName = name + ".json";
+        String fileName =DirectoryRequestHandler.safeName(name,true) + ".json";
         File of = new File(userDir, fileName);
         if (!userDir.canWrite()) throw new IOException("unable to write layout " + fileName);
         FileOutputStream os = new FileOutputStream(of);
@@ -70,8 +72,8 @@ public class LayoutHandler implements INavRequestHandler{
 
     @Override
     public JSONArray handleList(Uri uri, RequestHandler.ServerInfo serverInfo) throws Exception{
-            JSONArray li=readDir(userDir,true);
-            for (IJsonObect o: readAssetsDir()){
+            JSONArray li=readDir(userDir);
+            for (AvnUtil.IJsonObect o: readAssetsDir()){
                 li.put(o.toJson());
             }
             return li;
@@ -94,13 +96,13 @@ public class LayoutHandler implements INavRequestHandler{
     public JSONObject handleApiRequest(Uri uri, PostVars postData, RequestHandler.ServerInfo serverInfo) throws Exception {
         String command= AvnUtil.getMandatoryParameter(uri,"command");
         if (command.equals("list")){
-            RequestHandler.getReturn(new RequestHandler.KeyValue("data",handleList(uri, serverInfo)));
+            RequestHandler.getReturn(new AvnUtil.KeyValue("data",handleList(uri, serverInfo)));
         }
         return null;
     }
 
     @Override
-    public ExtendedWebResourceResponse handleDirectRequest(Uri uri, RequestHandler handler) throws FileNotFoundException {
+    public ExtendedWebResourceResponse handleDirectRequest(Uri uri, RequestHandler handler, String method) throws FileNotFoundException {
         return null;
     }
 
@@ -109,10 +111,10 @@ public class LayoutHandler implements INavRequestHandler{
         return null;
     }
 
-    private ArrayList<IJsonObect> readAssetsDir() throws Exception {
-        ArrayList<IJsonObect> rt=new ArrayList<>();
+    private ArrayList<AvnUtil.IJsonObect> readAssetsDir() throws Exception {
+        ArrayList<AvnUtil.IJsonObect> rt=new ArrayList<>();
         String [] list;
-        list=activity.getAssets().list(systemDir);
+        list= context.getAssets().list(systemDir);
         for (String name :list){
             if (!name.endsWith(".json")) continue;
             if (name.equals("keys.json")) continue;
@@ -121,23 +123,23 @@ public class LayoutHandler implements INavRequestHandler{
         }
         return rt;
     }
-    private JSONArray readDir(File dir,boolean canDelete) throws JSONException {
+    private JSONArray readDir(File dir) throws JSONException {
         JSONArray rt=new JSONArray();
         if (!dir.isDirectory()) return rt;
         for (File f: dir.listFiles()){
             if (!f.getName().endsWith(".json")) continue;
             if (! f.isFile()) continue;
-            LayoutInfo li=new LayoutInfo(f.getName().replaceAll("\\.json$",""),canDelete,f.lastModified());
+            LayoutInfo li=new LayoutInfo(f.getName().replaceAll("\\.json$",""),true,f.lastModified());
             rt.put(li.toJson());
         }
         return rt;
     }
 
 
-    public LayoutHandler(Activity activity,String systemDir, File userDir){
+    public LayoutHandler(Context context, String systemDir, File userDir){
         this.systemDir=systemDir;
         this.userDir=userDir;
-        this.activity=activity;
+        this.context = context;
         if (! userDir.isDirectory()){
             userDir.mkdirs();
         }
@@ -147,7 +149,7 @@ public class LayoutHandler implements INavRequestHandler{
         if (name.startsWith(LayoutInfo.SYSTEMPREFIX)){
             name=name.substring(LayoutInfo.SYSTEMPREFIX.length());
             String filename=name+".json";
-            return activity.getAssets().open(systemDir+"/"+filename);
+            return context.getAssets().open(systemDir+"/"+filename);
         }
         if (name.startsWith(LayoutInfo.USERPREFIX)){
             name=name.substring(LayoutInfo.USERPREFIX.length());
@@ -159,16 +161,18 @@ public class LayoutHandler implements INavRequestHandler{
         throw new IOException("neither system nor user layout: "+name);
     }
 
-    public static Uri getUriForLayout(String name){
-        if (name.startsWith("system.")){
-            return AssetsProvider.createContentUri("layout",name.replaceAll("^system\\.",""));
+    public static Uri getUriForLayout(String url){
+        if (! url.startsWith(PREFIX)) return null;
+        url=url.substring(PREFIX.length()+1);
+        if (url.startsWith("system.")){
+            return AssetsProvider.createContentUri(PREFIX,url.replaceAll("^system\\.",""));
         }
         else{
             try {
-                Uri rt = UserFileProvider.createContentUri("layout",name.replaceAll("^user\\.",""),null);
+                Uri rt = UserFileProvider.createContentUri(PREFIX,url.replaceAll("^user\\.",""),null);
                 return rt;
             }catch (Throwable t){
-                AvnLog.e("error creating uri for layout "+name,t);
+                AvnLog.e("error creating uri for layout "+url,t);
                 return null;
             }
         }

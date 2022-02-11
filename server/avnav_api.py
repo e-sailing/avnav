@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012-2019 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012-2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -24,11 +23,16 @@
 #
 ###############################################################################
 
-class AVNApi:
-
+class AVNApi(object):
   """
   the API for handlers/decoders that will input data, decode NMEA or output data
   """
+
+  ALLOW_KEY_OVERWRITE='allowKeyOverwrite'
+  """
+  parameter that must be set to allow overriding of keys that are set inside AvNav
+  """
+
   def log(self, format, *param):
     """
     log infos
@@ -257,3 +261,92 @@ class AVNApi:
     @param callback:
     @return:
     '''
+    raise NotImplemented()
+
+  def getAvNavVersion(self):
+    '''
+    get the version of AvNav as an int
+    @return:
+    '''
+    raise NotImplemented()
+
+  def saveConfigValues(self,configDict):
+    '''
+    save config values
+    the plugin must ensure that it will be able to start with the values
+    being saved here
+    additionally it should already start using those values before writing them here
+    values should be strings (will be converted to strings in any case)
+    @param configDict:
+    @return:
+    '''
+    raise NotImplemented()
+
+  def registerEditableParameters(self,paramList,changeCallback):
+    '''
+    register a list of parameters that can be edited
+    when some of the values are changed, the plugin is called back
+    with changeCallback, getting the changed values as a dictionary
+    typically this method should be called in the constructor
+    @see #saveConfigValues
+
+    @param paramList:
+    each entry in the list must be a dict with the following keys:
+    name (mandatory): the name of the item
+    default (opt): if this is not set or None, this parameter is mandatory
+    type (default: STRING): one of STRING,NUMBER,FLOAT,SELECT,BOOLEAN
+    listOrRange (opt): a list of the values for select or a range min,max for NUMBER and FLOAT
+                       it can also be a function that returns the values
+    description: a descriptive text for the user
+    @type paramList list
+    @return:
+    '''
+    raise NotImplemented()
+
+  def registerRestart(self,stopCallback):
+    '''
+    tell AvNav that this plugin can be stopped and restarted
+    if this has been called, the user will be able to enable/disable
+    the plugin on the fly
+    You should regsiter this already in your init - otherwise
+    the user will not be able to enable the plugin on the fly
+    @param stopCallback: a callback function to be called for stopping
+    the plugin must exit it's run method
+    @return:
+    '''
+    raise NotImplemented()
+
+  def unregisterUserApp(self,id):
+    '''
+    unregister a previously registered user app
+    @param id: the id returend by registerUserApp
+    @return:
+    '''
+    raise NotImplemented()
+
+  def shouldStopMainThread(self):
+    '''
+    check if the main thread of the plugin should stop
+    this method will always return True if you call
+    it from a different thread
+    @return:
+    '''
+    raise NotImplemented()
+
+  def deregisterUsbHandler(self,usbid=None):
+    '''
+    deregister previously registered usb devices
+    @param usbid: if None deregister all ids we have registered
+    @return:
+    '''
+    raise NotImplemented()
+  def sendRemoteCommand(self,command,param,channel=0):
+    '''
+    send a remote channel command
+    this will be sent to all connected displays listening on this channel
+    @param command: K or one of Cx - see viewer/util/remotechannel.js:COMMANDS
+    @param param: the command parameter, for K: the key code
+    @param channel: the channel id (0...4)
+    @return:
+    '''
+    raise NotImplemented()

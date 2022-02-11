@@ -1,10 +1,9 @@
-import time
 #the following import is optional
 #it only allows "intelligent" IDEs (like PyCharm) to support you in using it
 from avnav_api import AVNApi
 
 
-class Plugin:
+class Plugin(object):
   PATH="gps.test"
 
   @classmethod
@@ -40,8 +39,10 @@ class Plugin:
     #we register an handler for API requests
     self.api.registerRequestHandler(self.handleApiRequest)
     self.count=0
+    self.api.registerRestart(self.stop)
 
-
+  def stop(self):
+    pass
 
   def run(self):
     """
@@ -54,7 +55,8 @@ class Plugin:
     """
     seq=0
     self.api.log("started")
-    while True:
+    self.api.setStatus('NMEA','running')
+    while not self.api.shouldStopMainThread():
       seq,data=self.api.fetchFromQueue(seq,10)
       if len(data) > 0:
         for line in data:

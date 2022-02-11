@@ -1,8 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import Promise from 'promise';
 import OverlayDialog, {dialogHelper,stateHelper} from './OverlayDialog.jsx';
-import DialogContainer from './OverlayDialogDisplay.jsx';
 import Toast from './Toast.jsx';
 import assign from 'object-assign';
 import {Checkbox,Input,InputReadOnly,InputSelect} from './Inputs.jsx';
@@ -120,7 +118,7 @@ export default  class UserAppDialog extends React.Component{
                                 value={this.state.internal}
                                 onChange={(nv)=>{
                                     this.setState({internal:nv});
-                                    this.stateHelper.setState({url:undefined});
+                                    this.stateHelper.setState({url:undefined,newWindow:false});
                                     }
                                 }/>}
                             {!this.state.internal ?
@@ -180,6 +178,15 @@ export default  class UserAppDialog extends React.Component{
                             {this.stateHelper.getValue('icon') && <img className="appIcon" src={this.stateHelper.getValue('icon')}/>}
                          </InputReadOnly>
                     }
+                    {canEdit && ! this.state.internal &&<Checkbox
+                        dialogRow={true}
+                        label={'newWindow'}
+                        value={this.stateHelper.getValue('newWindow') === 'true'}
+                        onChange={(nv)=>{
+                            this.stateHelper.setState({newWindow:nv?'true':'false'});
+                        }}
+                    />}
+
 
                     <div className="dialogButtons">
                         {(this.stateHelper.getValue('name') && this.stateHelper.getValue('canDelete') && canEdit) && <DB name="delete" onClick={()=>{
@@ -226,7 +233,7 @@ UserAppDialog.showUserAppDialog=(item,fixed,opt_showToasts)=>{
                 <UserAppDialog
                     {...props}
                     okFunction={(addon)=>{
-                        Addons.updateAddon(addon.name,addon.url,addon.icon,addon.title)
+                        Addons.updateAddon(addon.name,addon.url,addon.icon,addon.title,addon.newWindow)
                             .then((data)=>{resolve(data)})
                             .catch((error)=>{
                                 if (opt_showToasts) Toast("unable to add/update: "+error);

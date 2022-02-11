@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
@@ -26,28 +25,18 @@
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
 
-import time
-import subprocess
-import threading
-import os
-import datetime
-import glob
-import sys
-import traceback
 import gzip
 
-from avnav_config import AVNConfig
-from avnav_util import *
-from avnav_worker import *
-from avnav_nmea import *
-from trackwriter import *
 import avnav_handlerList
+from trackwriter import *
+
 
 #a writer for our track
 class AVNNmeaLogger(AVNWorker):
   def __init__(self,param):
     AVNWorker.__init__(self, param)
     self.trackdir=None
+    self.nmeaFilter=[]
   @classmethod
   def getConfigName(cls):
     return "AVNNmeaLogger"
@@ -55,65 +44,78 @@ class AVNNmeaLogger(AVNWorker):
   def getConfigParam(cls, child=None):
     if child is not None:
       return None
-    return {
-            'trackdir':"", #defaults to dir of trackwriter
-            'feederName':'',  #if set, use this feeder
-            'maxfiles':"100", #max number of log files
-            'filter':"$RMC,$DBT,$DBP", #nmea output filter
-            'interval':'5' #interval in seconds
+    return [
+            WorkerParameter('trackdir',"", editable=False),
+            WorkerParameter('feederName','',editable=False),
+            WorkerParameter('maxfiles',100,type=WorkerParameter.T_NUMBER,
+                            description='max number of log files'),
+            WorkerParameter('filter',"$RMC,$DBT,$DBP", type=WorkerParameter.T_FILTER),
+            WorkerParameter('interval',5,type=WorkerParameter.T_FLOAT,
+                            description='interval in seconds between 2 writes of the same record')
 
-    }
+    ]
+
+  @classmethod
+  def canEdit(cls):
+    return True
+
+  @classmethod
+  def canDisable(cls):
+    return True
+
   #write out the line
   #timestamp is a datetime object
   def writeLine(self,filehandle,data):
     filehandle.write(data)
     filehandle.flush()
   def createFileName(self,dt):
-    str=unicode(dt.strftime("%Y-%m-%d")+".nmea")
-    return str
-    
+    fstr=str(dt.strftime("%Y-%m-%d")+".nmea")
+    return fstr
+
+  def updateConfig(self, param, child=None):
+    super().updateConfig(param, child)
+    filterstr = self.getStringParam("filter") or ''
+    self.nmeaFilter = filterstr.split(",")
+
   def run(self):
-    self.setName(self.getThreadPrefix())
-    trackdir=AVNConfig.getDirWithDefault(self.param,"trackdir")
-    filterstr=self.getStringParam("filter")
-    if filterstr is None or filterstr == "":
-      AVNLog.warn("no filter for NMEA logger, exiting logger")
-      return
+    trackdir=AVNHandlerManager.getDirWithDefault(self.param, "trackdir")
+    filterstr=self.getStringParam("filter") or ''
     feeder=self.findFeeder(self.getStringParam('feederName'))
     if feeder is None:
       raise Exception("%s: cannot find a suitable feeder (name %s)",self.getName(),self.getStringParam("feederName") or "")
     self.feeder=feeder
-    nmeaFilter=filterstr.split(",")
+    self.nmeaFilter=filterstr.split(",")
     if trackdir is None:
       trackwriter=self.findHandlerByName(AVNTrackWriter.getConfigName())
       if trackwriter is not None:
         trackdir=trackwriter.getTrackDir()
       if trackdir is None or not trackdir :
         #2nd try with a default
-        trackdir = AVNConfig.getDirWithDefault(self.param, "trackdir","tracks")
+        trackdir = AVNHandlerManager.getDirWithDefault(self.param, "trackdir", "tracks")
     self.trackdir=trackdir
-    interval=self.getIntParam('interval')
-    maxfiles=100
-    try:
-      mf=self.getIntParam('maxfiles')
-      if mf > 0:
-        maxfiles=mf
-    except:
-      pass
-    self.maxfiles=maxfiles
-    AVNLog.info("starting logger with maxfiles = %d, filter=%s, interval=%ds",maxfiles,filterstr,interval)
     fname=None
     f=None
     lastcleanup=None
     seq=0
     last={}
     initial=True
-    while True:
+    while not self.shouldStop():
+      interval = self.getIntParam('interval')
+      maxfiles = 100
+      try:
+        mf = self.getIntParam('maxfiles')
+        if mf > 0:
+          maxfiles = mf
+      except:
+        pass
+      self.maxfiles = maxfiles
+      if initial:
+        AVNLog.info("starting logger with maxfiles = %d, filter=%s, interval=%ds", maxfiles, filterstr, interval)
       currentTime=datetime.datetime.utcnow()
       try:
         newFile=False
         if not os.path.isdir(self.trackdir):
-          os.makedirs(self.trackdir, 0775)
+          os.makedirs(self.trackdir, 0o775)
         curfname=os.path.join(self.trackdir,self.createFileName(currentTime))
         #we have to consider time shift backward
         if lastcleanup is None or (currentTime > lastcleanup+datetime.timedelta(seconds=60)) or (currentTime < lastcleanup-datetime.timedelta(seconds=5)):
@@ -132,12 +134,12 @@ class AVNNmeaLogger(AVNWorker):
           last={}
         if newFile:
           zfname=curfname+".gz"
-          f=open(curfname,"a")
           if os.path.isfile(zfname):
             #we must uncompress first
             AVNLog.info("decompressing existing nmea log %s",zfname)
             try:
               zf=gzip.open(zfname,"rb")
+              f = open(curfname, "wb")
               while True:
                 buf=zf.read(100000)
                 if buf is None or len(buf) == 0:
@@ -150,9 +152,11 @@ class AVNNmeaLogger(AVNWorker):
               os.unlink(zfname)
             except:
               pass
+            f.close()
+          f=open(curfname,"a",encoding='utf-8',errors='ignore')
           newFile=False
-          self.setInfo('main', "writing to %s"%(curfname,), AVNWorker.Status.NMEA)
-        seq,data=self.feeder.fetchFromHistory(seq,10,nmeafilter=nmeaFilter)
+          self.setInfo('main', "writing to %s"%(curfname,), WorkerStatus.NMEA)
+        seq,data=self.feeder.fetchFromHistory(seq,10,nmeafilter=self.nmeaFilter)
         if len(data)>0:
           for line in data:
 

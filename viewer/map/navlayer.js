@@ -10,7 +10,9 @@ import globalStore from '../util/globalstore.jsx';
 import RouteEdit from '../nav/routeeditor.js';
 import boatImage from '../images/Boat-NoNeedle.png';
 import markerImage from '../images/Marker2.png';
+import measureImage from '../images/measure.png';
 import assign from 'object-assign';
+
 
 const activeRoute=new RouteEdit(RouteEdit.MODES.ACTIVE,true);
 
@@ -51,7 +53,7 @@ const NavLayer=function(mapholder){
      */
     this.circleStyle={};
     this.anchorCircleStyle={};
-    this.setStyle();
+    this.measureLineStyle={};
 
 
     /**
@@ -74,11 +76,18 @@ const NavLayer=function(mapholder){
         image: new Image()
     };
     this.anchorStyle.image.src=this.anchorStyle.src;
-
-
+    this.measureStyle={
+        anchor: [17,38],
+        size: [40,40],
+        src: measureImage,
+        image: new Image()
+    };
+    this.measureStyle.image.src=this.measureStyle.src;
+    this.setStyle();
     globalStore.register(this,keys.gui.global.propertySequence);
 
 };
+
 
 /**
  * set the style(s)
@@ -90,9 +99,13 @@ NavLayer.prototype.setStyle=function() {
             width: globalStore.getData(keys.properties.navCircleWidth)
     };
     this.anchorCircleStyle={
-        color: globalStore.getData(keys.properties.anchorCircleColor),
+        color: this.anchorStyle.courseVectorColor?this.anchorStyle.courseVectorColor:globalStore.getData(keys.properties.anchorCircleColor),
         width: globalStore.getData(keys.properties.anchorCircleWidth)
     };
+    this.measureLineStyle={
+        color: this.measureStyle.courseVectorColor?this.measureStyle.courseVectorColor:globalStore.getData(keys.properties.measureColor),
+        width: globalStore.getData(keys.properties.navCircleWidth)
+    }
 };
 
 //we do not explicitely register for those keys as we rely on the mapholder
@@ -101,7 +114,9 @@ const positionKeys={
     course:     keys.nav.gps.course,
     speed:      keys.nav.gps.speed,
     position:   keys.nav.gps.position,
-    valid:      keys.nav.gps.valid
+    valid:      keys.nav.gps.valid,
+    hdm:        keys.nav.gps.headingMag,
+    hdt:        keys.nav.gps.headingTrue,
 };
 /**
  * draw the marker and course
@@ -112,13 +127,26 @@ const positionKeys={
 NavLayer.prototype.onPostCompose=function(center,drawing){
     let anchorDistance=activeRoute.anchorWatch();
     let gps=globalStore.getMultiple(positionKeys);
+    let boatDirectionMode=globalStore.getData(keys.properties.boatDirectionMode,'cog');
     let course=gps.course;
+    let boatRotation=undefined;
+    if (boatDirectionMode === 'hdt' && gps.hdt !== undefined){
+        boatRotation=gps.hdt;
+    }
+    if (boatDirectionMode === 'hdm' && gps.hdm !== undefined){
+        boatRotation=gps.hdm;
+    }
     if (course === undefined) course=0;
     if (this.boatStyle.rotate === false){
         this.boatStyle.rotation=0;
     }
     else {
-        this.boatStyle.rotation = course * Math.PI / 180;
+        if (boatRotation !== undefined){
+            this.boatStyle.rotation = boatRotation  * Math.PI / 180;
+        }
+        else{
+            this.boatStyle.rotation = course  * Math.PI / 180;
+        }
     }
     let boatPosition = this.mapholder.transformToMap(gps.position.toCoord());
     if (globalStore.getData(keys.properties.layers.boat) && gps.valid) {
@@ -137,6 +165,10 @@ NavLayer.prototype.onPostCompose=function(center,drawing){
         if (courseVetcorDistance > 0 && this.boatStyle.courseVector !== false){
             other=this.computeTarget(boatPosition,course,courseVetcorDistance);
             drawing.drawLineToContext([boatPosition,other],courseVectorStyle);
+            if (boatRotation !== undefined && globalStore.getData(keys.properties.boatDirectionVector)){
+                other=this.computeTarget(boatPosition,boatRotation,courseVetcorDistance);
+                drawing.drawLineToContext([boatPosition,other],assign({dashed:true},courseVectorStyle));
+            }
         }
         if (! anchorDistance) {
             let radius1 = parseInt(globalStore.getData(keys.properties.navCircle1Radius));
@@ -158,6 +190,12 @@ NavLayer.prototype.onPostCompose=function(center,drawing){
     }
     if (!globalStore.getData(keys.map.lockPosition,false)) {
         drawing.drawImageToContext(center, this.centerStyle.image, this.centerStyle);
+        let measurePos=globalStore.getData(keys.map.measurePosition);
+        if (measurePos && measurePos.lat && measurePos.lon){
+            let measure=this.mapholder.transformToMap((new navobjects.Point(measurePos.lon,measurePos.lat)).toCoord());
+            drawing.drawImageToContext(measure,this.measureStyle.image,this.measureStyle);
+            drawing.drawLineToContext([measure,center],this.measureLineStyle);
+        }
     }
     if (anchorDistance){
         let p=activeRoute.getCurrentFrom();
@@ -168,6 +206,7 @@ NavLayer.prototype.onPostCompose=function(center,drawing){
             drawing.drawCircleToContext(c,other,this.anchorCircleStyle);
         }
     }
+
 
 
 
@@ -196,20 +235,29 @@ NavLayer.prototype.dataChanged=function(){
 };
 
 NavLayer.prototype.setImageStyles=function(styles){
-    if (styles.boatImage){
-        let boat=styles.boatImage;
-        if (typeof(boat) === 'object'){
-            if (boat.src) {
-                this.boatStyle.image.src=boat.src;
-                this.boatStyle.src=boat.src;
+    let otherStyles={
+        anchorImage:'anchorStyle',
+        measureImage:'measureStyle',
+        boatImage: 'boatStyle'
+    };
+    for (let style in otherStyles){
+        let target=otherStyles[style];
+        if (styles[style]){
+            let styleDef=styles[style];
+            if (typeof(styleDef) === 'object'){
+                if (styleDef.src) {
+                    this[target].image.src = styleDef.src;
+                    this[target].src = styleDef.src;
+                }
+                if (styleDef.anchor && styleDef.anchor instanceof Array && styleDef.anchor.length===2) this[target].anchor=styleDef.anchor;
+                if (styleDef.size && styleDef.size instanceof Array && styleDef.size.length === 2) this[target].size=styleDef.size;
+                if (styleDef.rotate !== undefined) this[target].rotate=styleDef.rotate;
+                if (styleDef.courseVector !== undefined) this[target].courseVector=styleDef.courseVector;
+                if (styleDef.courseVectorColor !== undefined) this[target].courseVectorColor=styleDef.courseVectorColor;
             }
-            if (boat.anchor && boat.anchor instanceof Array && boat.anchor.length==2) this.boatStyle.anchor=boat.anchor;
-            if (boat.size && boat.size instanceof Array && boat.size.length == 2) this.boatStyle.size=boat.size;
-            if (boat.rotate !== undefined) this.boatStyle.rotate=boat.rotate;
-            if (boat.courseVector !== undefined) this.boatStyle.courseVector=boat.courseVector;
-            if (boat.courseVectorColor !== undefined) this.boatStyle.courseVectorColor=boat.courseVectorColor;
         }
     }
+    this.setStyle();
 };
 
 export default NavLayer;

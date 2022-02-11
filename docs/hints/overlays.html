@@ -4,25 +4,22 @@
     <title>Overlays</title>
     <link href="../styles.css" rel="stylesheet" type="text/css">
   </head>
-  <body data-order="5300">
+  <body data-order="800">
     <h1>Avnav Overlays</h1>
-    <ul>
-      <li><a href="#configuration">Konfiguration</a></li>
-      <li><a href="#usage">Nutzung</a></li>
-    </ul>
+    <div class="toc"> </div>
     <p>Ab der Version 20201219 ist AvNav in der Lage, neben der eigentlichen
-      Karte noch Zusatzinformationen anzuzeigen. Das können z.B. Wegepunkte aus
+      Karte noch Zusatzinformationen anzuzeigen. Das können z.B. Wegpunkte aus
       einer GPX Datei aber auch vorhandene Tracks oder andere Daten (wie z.B.
       aktuelle Tonnen von <a href="http://nautin.nl/wb/pages/navigatie/boeienbestanden/downloaden.php">nautin.nl</a>)
       sein.</p>
     <p>Daneben können mit dieser neuen Funktionalität auch mehrere Karten
-      übereinander gelegt werden (z.B. eine OpenSeamap Karte die einen weiteren
+      übereinander gelegt werden (z.B. eine OpenSeamap Karte, die einen weiteren
       Bereich abdeckt unter eine o-charts Karte - oder auch o-charts Karten für
       verschiedene Regionen).</p>
     <p>Innerhalb von AvNav wird diese Funktion als Overlays bezeichnet.</p>
     <p>Im Einzelnen können die folgenden Daten als Overlays genutzt werden:</p>
     <ul>
-      <li>GPX Dateien (Wegepunkte,Tracks,Routen)</li>
+      <li>GPX Dateien (Wegpunkte,Tracks,Routen)</li>
       <li><a href="https://developers.google.com/kml/documentation/kmzarchives">KML
           und KMZ</a> Dateien (google) - ind der KMZ Datei wird eine doc.kml
         erwartet.</li>
@@ -90,6 +87,12 @@
             Auswahl angeboten</td>
         </tr>
         <tr>
+          <td>featureFormatter</td>
+          <td>---</td>
+          <td>Auswahl einer Java Script Funktion zum Aufbereiten von
+            zusätzlichen Informationen bei Klick auf das Element</td>
+        </tr>
+        <tr>
           <td>opacity</td>
           <td>1</td>
           <td>Ein Wert zwischen 0...1, der die Farbdeckung angibt (0:
@@ -111,26 +114,26 @@
         <tr>
           <td>min zoom</td>
           <td>0</td>
-          <td>der minimale Karten-Zoom bei dem das overlay noch angezeigt wird
+          <td>der minimale Karten-Zoom bei dem das Overlay noch angezeigt wird
             (0: immer)</td>
         </tr>
         <tr>
           <td>max zoom</td>
           <td>0</td>
-          <td>der maximale Karten-Zoom bei dem das overlay noch angezeigt wird
+          <td>der maximale Karten-Zoom bei dem das Overlay noch angezeigt wird
             (0: immer)</td>
         </tr>
         <tr>
           <td>min scale</td>
           <td>0</td>
           <td>wenn der Kartenzoom kleiner als min scale ist, werden die Icons
-            verkleinert (0: Funktion dekativiert)</td>
+            verkleinert (0: Funktion deaktiviert)</td>
         </tr>
         <tr>
           <td>max scale</td>
           <td>0</td>
           <td>wenn der Kartenzoom grösser als max scale ist, werden die Icons
-            vergrößert (0: Funktion dekativiert)</td>
+            vergrößert (0: Funktion deaktiviert)</td>
         </tr>
         <tr>
           <td>default icon</td>
@@ -145,7 +148,7 @@
         </tr>
       </tbody>
     </table>
-    <p>Falls die Datei andere Inhalte hat als Wegepunkte, werden ggf. noch
+    <p>Falls die Datei andere Inhalte hat als Wegpunkte, werden ggf. noch
       weitere Auswahlmöglichkeiten angeboten.</p>
     <p><img src="Overlay-Config-Default-Select2.png" alt="" class="fimage"></p>
     <table border="1" width="100%">
@@ -203,20 +206,20 @@
       dargestellt.</p>
     <img src="Overlay-Example-Maps-Waypoints.png" alt="" class="fimage">
     <p>Im Beispiel eine o-charts Karte mit einer OpenStreetMap Karte darunter
-      und einer Wegepunkt-Datei darüber.<br>
+      und einer Wegpunkt-Datei darüber.<br>
       Als Icon wurde das DefaultGpxIcon gewählt.<br>
       Wenn auf eines der Icons aus dem Overlay geklickt wird, erscheint ein Info
       Dialog.</p>
     <img src="Overlay-Example-InfoDialog.png" alt="" class="fimage">
     <p>Man erhält die zum Punkt verfügbaren Informationen und die Möglichkeit
-      z.B. diesen Punkt sofort als Zielpunkt zum routing zu verwenden (Goto).<br>
+      z.B. diesen Punkt sofort als Zielpunkt zum Routing zu verwenden (Goto).<br>
       Über "Hide" kann das gesamte Overlay temporär ausgeblendet werden.<br>
       Wenn man sich momentan im <a href="../userdoc/editroutepage.html">Routen-Editor</a>
       befindet, stehen noch weitere Funktionen zur Verfügung.</p>
     <p><img src="Overlay-Example-InfoDialogRouting.png" alt="" class="fimage"></p>
     <p>Der gewählte Punkt kann zur Route hinzugefügt werden (vor oder hinter dem
       aktuellen Punkt der Route) oder der aktuelle Punkt der Route kann auf
-      diesen Wegepunkt verschoben werden.</p>
+      diesen Wegpunkt verschoben werden.</p>
     <p>Wenn es sich beim Overlay um eine Route handelt, kann diese Route (ab dem
       gewählten Punkt) zur aktuellen Route hinzugefügt werden.</p>
     <p><img src="Overlay-Example-InfoDialogRouting2.png" alt="" class="fimage"></p>
@@ -234,10 +237,91 @@
     <p>Über Edit kann man wieder zur normalen Bearbeitung der Overlays wechseln.</p>
     <p><b>Hinweis:</b></p>
     <p>Wenn man Overlay-Dateien mit sehr vielen Elementen nutzt, kann das die
-      Arbeitsgeschwindikeit stark reduzieren. Momentan ist dort kein festes
+      Arbeitsgeschwindigkeit stark reduzieren. Momentan ist dort kein festes
       Limit eingebaut, Dateien von einigen 100MB werden allerdings mit
       Sicherheit Probleme bereiten. 1000 Punkte in einem Overlay sind dagegen
       kein Problem.</p>
+    <h2><a name="adaptation"></a>Anpassungen</h2>
+    <p>Ab Version 20210114 kann man die Informationen anpassen, die aus der
+      Overlay-Datei gewonnen werden und die dann bei "Feature Info" angezeigt
+      werden. Das kann sinnvoll sein, da manchmal verfügbare Overlay Dateien
+      Informationen enthalten, die AvNav von sich aus noch nicht kennt.</p>
+    <p>Zu diesem Zweck kann man beim <a href="#configuration">Konfigurieren</a>
+      des Overlays einen "featureFormatter" angeben. Dabei handelt es sich um
+      eine Java Script Funktion, die entweder in AvNav schon vorhanden ist, die
+      in der <a href="userjs.html">user.js</a> eingebaut wird, oder die von
+      einem <a href="plugins.html">plugin</a> kommt.</p>
+    <p>Diese Java Script Funktion bekommt als Parameter die in der Overlay Datei
+      vorhandenen Eigenschaften des angeklickten Punktes und kann
+      veränderte/neue Eigenschaften zurückgeben, die dann vom FeatureInfo Dialog
+      angezeigt werden.</p>
+    <p>Die folgenden Eigenschaften können zurückgegeben werden:</p>
+    <table border="1" width="100%">
+      <tbody>
+        <tr>
+          <td>Name</td>
+          <td>Bedeutung</td>
+        </tr>
+        <tr>
+          <td>sym</td>
+          <td>die URL für ein anzuzeigendes Icon. Das kann eine relative URL
+            sein, diese ist dann eine Icon Datei innerhalb der <a href="#configuration">konfigurierten</a>
+            userIcons Datei, ein absoluter Pfad wie z.B.
+            /user/images/myImage.png oder eine mit http: beginnende externe URL
+            (natürlich dann nur mit Internet Verbindung nutzbar).</td>
+        </tr>
+        <tr>
+          <td>name</td>
+          <td>der anzuzeigende Name</td>
+        </tr>
+        <tr>
+          <td>desc</td>
+          <td>der unter "description" anzuzeigende Text</td>
+        </tr>
+        <tr>
+          <td>htmlInfo</td>
+          <td>ein html String, der dann bei Klick auf den <img src="../viewerimages/icons-new/ic_info.svg"
+              alt="" class="inlineimage">Info Button angezeigt wird.</td>
+        </tr>
+        <tr>
+          <td>time</td>
+          <td>eine Zeitangabe (String oder java script Date)</td>
+        </tr>
+        <tr>
+          <td>link</td>
+          <td>eine URL, die bei Klick auf den <img src="../viewerimages/icons-new/ic_info.svg"
+              alt="" class="inlineimage">Info Button angezeigt werden soll
+            (alternativ zu htmlInfo). Es gelten die gleichen Regeln wie für
+            "sym".</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Die übergebenen Parameter hängen von der Overlay Datei ab. Zusätzlich
+      sind in jedem Falle die Werte "lat" und "lon" vorhanden.</p>
+    <p>Ein Beispiel für die <a href="https://github.com/wellenvogel/avnav/blob/master/viewer/util/featureFormatter.js">eingebaute
+        genericHtmlInfo</a> Funktion, die alle vorhandenen Werte als HTML in den
+      Wert htmlInfo schreibt.</p>
+    <div class="code">let genericHtmlInfo=function(properties,extended){
+    if (! extended) return {};
+    let htmlInfo='&lt;div class="featureInfoHtml"&gt;';
+    for (let k in properties){
+        if (!properties[k]) continue;
+        if (htmlInfo !== "") htmlInfo+="&lt;br/&gt;";
+        htmlInfo+=avnav.api.escapeHtml(k)+"="+avnav.api.escapeHtml(properties[k]);
+    }
+    htmlInfo+='&lt;/div&gt;';
+    return {htmlInfo:htmlInfo};
+}</div>
+    <p>Der zweite Parameter, der an die Funktion übergeben wird, gibt einen
+      Hinweis, ob alle Parameter erzeugt werden sollen oder nur der "sym"
+      Parameter. Falls extended auf "false" gesetzt ist, sollte die Funktion
+      keine zeitraubenden Operationen ausführen, da sie potentiell für jedes
+      Element aus dem Overlay aufgerufen wird.</p>
+    <p>Um selbst eine solche Funktion bei AvNav bekannt zu machen, muss sie wie
+      folgt registriert werden (siehe <a href="userjs.html">user.js</a>).</p>
+    <div class="code">avnav.api.registerFeatureFormatter('myHtmlInfo',myHtmlInfoFunction);</div>
+    <p>Nachdem die Funktion registriert wurde, kann sie in der Overlay <a href="#configuration">Konfiguration</a>
+      ausgewählt werden.</p>
     <p><br>
     </p>
     <p><br>

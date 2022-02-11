@@ -39,6 +39,9 @@ const mergeStyles=function(){
 
 const styleKeyFromItem=(item,useDefault,useInternal)=>{
     let rt="normal";
+    if (item.mmsi === globalStore.getData(keys.nav.ais.trackedMmsi)){
+        rt="tracking";
+    }
     if (item.warning){
       rt="warning";
     }
@@ -160,6 +163,9 @@ AisLayer.prototype.createInternalIcons = function () {
     this.symbolStyles.internalnormal = new StyleEntry(
         this.createIcon(style.aisNormalColor, useCourseVector),
         assign({}, symbolStyle, {courseVectorColor: style.aisNormalColor}));
+    this.symbolStyles.internaltracking = new StyleEntry(
+        this.createIcon(style.aisTrackingColor, useCourseVector),
+        assign({}, symbolStyle, {courseVectorColor: style.aisTrackingColor}));
 
 };
 /**
@@ -214,9 +220,13 @@ AisLayer.prototype.drawTargetSymbol=function(drawing,xy,current,computeTargetFun
     let useCourseVector=globalStore.getData(keys.properties.aisUseCourseVector,false);
     let courseVectorWidth=globalStore.getData(keys.properties.navCircleWidth);
     let scale=globalStore.getData(keys.properties.aisIconScale,1);
+    let classbShrink=globalStore.getData(keys.properties.aisClassbShrink,1);
     let rotation=current.course||0;
     let symbol=this.getStyleEntry(current);
     let style=assign({},symbol.style);
+    if (classbShrink != 1 && AisFormatter.format('clazz',current) === 'B'){
+        scale=scale*classbShrink;
+    }
     if (scale != 1){
         style.size=[style.size[0]*scale,style.size[1]*scale];
         style.anchor=[style.anchor[0]*scale,style.anchor[1]*scale];
@@ -241,6 +251,33 @@ AisLayer.prototype.drawTargetSymbol=function(drawing,xy,current,computeTargetFun
     return curpix;
 };
 
+AisLayer.prototype.computeTextOffsets=function(target,textIndex){
+    let rt={
+        offsetX:0,
+        offsetY:0
+    };
+    let hoffset=Math.floor(this.textStyle.fontSize * 1.0);
+    let base=10;
+    if (! target.course || 315 < target.course  ||  target.course < 45 ){
+        //above
+        rt.offsetY=-base-textIndex*hoffset;
+    }
+    else{
+        if (target.course >= 45 && target.course <= 135){
+            rt.offsetX=base;
+            rt.offsetY=-hoffset+textIndex*hoffset;
+        }
+        if (target.course > 135 && target.course < 225){
+            rt.offsetY=base+textIndex*hoffset;
+        }
+        if (target.course >= 225 && target.course <= 315){
+            rt.offsetX=-base;
+            rt.offsetY=-hoffset+textIndex*hoffset;
+        }
+    }
+    return rt;
+};
+
 /**
  *
  * @param {olCoordinate} center
@@ -251,6 +288,9 @@ AisLayer.prototype.onPostCompose=function(center,drawing){
     let i;
     let pixel=[];
     let aisList=globalStore.getData(keys.nav.ais.list,[]);
+    let firstLabel=globalStore.getData(keys.properties.aisFirstLabel,'');
+    let secondLabel=globalStore.getData(keys.properties.aisSecondLabel,'');
+    let thirdLabel=globalStore.getData(keys.properties.aisThirdLabel,'');
     for (i in aisList){
         let current=aisList[i];
         let pos=current.mapPos;
@@ -259,10 +299,23 @@ AisLayer.prototype.onPostCompose=function(center,drawing){
             current.mapPos=pos;
         }
         let curpix=this.drawTargetSymbol(drawing,pos,current,this.computeTarget);
-        let text=current.shipname;
-        if (! text || text == "unknown") text=current.mmsi;
         pixel.push({pixel:curpix,ais:current});
-        drawing.drawTextToContext(pos,text,this.textStyle);
+        let text=AisFormatter.format(firstLabel,current,true);
+        if (text) {
+            drawing.drawTextToContext(pos, text, assign({}, this.textStyle, this.computeTextOffsets(current, 0)));
+        }
+        if (secondLabel !== firstLabel) {
+            text=AisFormatter.format(secondLabel,current,true);
+            if (text) {
+                drawing.drawTextToContext(pos, text, assign({}, this.textStyle, this.computeTextOffsets(current, 1)));
+            }
+        }
+        if (thirdLabel !== firstLabel && thirdLabel !== secondLabel){
+            text=AisFormatter.format(thirdLabel,current,true);
+            if (text) {
+                drawing.drawTextToContext(pos, text, assign({}, this.textStyle, this.computeTextOffsets(current, 2)));
+            }
+        }
     }
     this.pixel=pixel;
 };
@@ -297,7 +350,7 @@ AisLayer.prototype.computeTarget=function(pos,course,dist){
  * @param styles
  */
 AisLayer.prototype.setImageStyles=function(styles){
-    let names=['Normal','Warning','Nearest'];
+    let names=['Normal','Warning','Nearest','Tracking'];
     let allowedStyles={
         anchor:true,
         size: true,

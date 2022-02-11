@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # 2011-03-01 16:32:36 
@@ -25,7 +25,6 @@
 #  DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-from __future__ import with_statement
 
 import os
 import logging
@@ -142,7 +141,7 @@ class GeoNosLayer(SrcLayer):
             ld(map_dir, fn)
             img_file=os.path.join(map_dir, fn)
         except:
-            raise Exception("*** Image file not found: %s" % img_path)
+            raise Exception("*** Image file not found: %s" % img_file)
         return img_file
 
     def get_size(self):
@@ -151,7 +150,7 @@ class GeoNosLayer(SrcLayer):
         assert hdr.startswith('NOS/')
         patt='RA='
         sz=hdr[hdr.index(patt)+len(patt):].split(',')[2:4]
-        return map(int,sz)
+        return list(map(int,sz))
 
     def get_name(self):
         return self.hdr_parms('Name')[0]

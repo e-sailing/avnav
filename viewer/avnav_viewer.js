@@ -49,6 +49,7 @@ import AndroidEventHandler from './util/androidEventHandler.js';
 import AvNavVersion from './version.js';
 import assign from 'object-assign';
 import LeaveHandler from './util/leavehandler';
+import isIosSafari from '@braintree/browser-detection/is-ios-safari';
 
 
 if (! window.avnav){
@@ -75,7 +76,13 @@ function getParam(key)
 avnav.main=function() {
     //some workaround for lees being broken on IOS browser
     //less.modifyVars();
-    document.querySelector('body').style.display='block';
+    let body=document.querySelector('body');
+    body.style.display='block';
+    if (isIosSafari()){
+        //strange bug on IOS 13 safari - seems that it does not recompute the height after rotating and hiding address bar...
+        body.style.height="100vh";
+        document.querySelector('html').style.height="100vh";
+    }
 
     if (getParam('log')) avnav.debugMode=true;
     let navurl=getParam('navurl');
@@ -129,10 +136,15 @@ avnav.main=function() {
         };
     }
     let startpage="warningpage";
+    let firstStart=true;
     if (typeof window.localStorage === 'object'){
         if (localStorage.getItem(globalStore.getData(keys.properties.licenseAcceptedName)) === 'true'){
             startpage="mainpage";
+            firstStart=false;
         }
+    }
+    if (firstStart){
+        propertyHandler.firstStart();
     }
     history.push(startpage);
     const loadScripts=(loadList)=>{

@@ -3,10 +3,9 @@
      we do not have a gpsd and we can only directly use serial readers -->
 <AVNServer>
 <AVNConfig loglevel="INFO"
-	logfile="#DATADIR#/log/avnav.log" 
 	debugToLog="true"/>
 <Readers>
-<AVNGpsdFeeder useGpsd="false" listenerPort="0" port="0" />
+<AVNFeeder/>
 <!-- <AVNSerialReader name="com4reader" port="3" useFeeder="true"/>-->
 <!-- add readers here for com ports that you want to listen on -->
 <!--<AVNSerialReader useFeeder="true" name="com8reader" port="7" baud="38400" minbaud="4800"/>-->
@@ -59,8 +58,8 @@
 	<AVNUdpReader port="34667" minTime="100"></AVNUdpReader>
 </Readers>
 <!-- provide your data at this port for e.g. OpenCPN -->
-<AVNSocketWriter port="34567" maxDevices="5" filter="" read="true" minTime="100"/>
-<AVNTrackWriter interval="10" distance="100" trackdir="#DATADIR#/tracks"/>
+<AVNSocketWriter port="34567" maxDevices="5" filter="" read="true" minTime="100" avahiName="avnav-server"/>
+<AVNTrackWriter interval="10" distance="100" />
 <AVNHttpServer navurl="/viewer/avnav_navi.php" httpPort="8080" upzoom="0"
                chartbase="maps" empty="nonexistent">
 <!-- chartbaseurl="http://$host/Karten/anav"> -->
@@ -71,20 +70,14 @@
 <!-- create chart overview files -->
 <AVNChartHandler></AVNChartHandler>
     <!--  routing handler -->
-<AVNRouter routesdir="#DATADIR#/routes"></AVNRouter>
+<AVNRouter></AVNRouter>
 <!--<AVNNmeaLogger filter="$" interval="0"></AVNNmeaLogger>-->
 <AVNNmeaLogger></AVNNmeaLogger>
-<AVNImporter importDir="#DATADIR#/import"></AVNImporter>
+<AVNImporter ></AVNImporter>
 <AVNWpaHandler></AVNWpaHandler>
 <AVNCommandHandler>
 	<Command name="sound" command="mpg123 -q" repeat="1"/>
 </AVNCommandHandler>
-<AVNAlarmHandler>
-	<Alarm name="waypoint" command="sound" parameter="$BASEDIR/../sounds/waypointAlarm.mp3" repeat="1"/>
-	<Alarm name="ais" command="sound" parameter="$BASEDIR/../sounds/aisAlarm.mp3" repeat="1"/>
-	<Alarm name="anchor" command="sound" parameter="$BASEDIR/../sounds/anchorAlarm.mp3" repeat="20000"/>
-	<Alarm name="gps" command="sound" parameter="$BASEDIR/../sounds/anchorAlarm.mp3" repeat="20000"/>
-</AVNAlarmHandler>
 <AVNPluginHandler>
 <!-- ##SIGNALK 
         <builtin-signalk enabled="true"/>

@@ -23,7 +23,6 @@
  ###############################################################################
  */
 
-import Promise from 'promise';
 import Requests from '../util/requests.js';
 import ChartSourceBase from './chartsourcebase.js';
 import {Style as olStyle, Stroke as olStroke, Circle as olCircle, Icon as olIcon, Fill as olFill} from 'ol/style';
@@ -34,6 +33,8 @@ import {GPX as olGPXFormat} from 'ol/format';
 import Helper from "../util/helper";
 import globalstore from "../util/globalstore";
 import keys from "../util/keys";
+import {assign} from "ol/obj";
+import featureFormatter from "../util/featureFormatter";
 
 export const stylePrefix="style."; // the prefix for style attributes
 
@@ -95,22 +96,7 @@ class GpxChartSource extends ChartSourceBase{
             })
         };
     }
-    getSymbolUrl(sym,opt_ext){
-        if (! sym.match(/\./) && opt_ext) sym+=opt_ext;
-        let url;
-        if (this.chartEntry.icons){
-            url=this.chartEntry.icons + "/" + sym;
-            if (this.chartEntry.defaultIcon) url+="?fallback="+encodeURIComponent(this.chartEntry.defaultIcon);
-        }
-        else{
-            return this.chartEntry.defaultIcon;
-        }
-        return url;
-    }
-    getLinkUrl(link){
-        if (! this.chartEntry.icons) return;
-        return this.chartEntry.icons+"/"+link;
-    }
+
     styleFunction(feature,resolution) {
 
         let type=feature.getGeometry().getType();
@@ -196,7 +182,7 @@ class GpxChartSource extends ChartSourceBase{
             let layerOptions={
                 source: vectorSource,
                 style: this.styleFunction,
-                opacity: this.chartEntry.opacity!==undefined?this.chartEntry.opacity:1
+                opacity: this.chartEntry.opacity!==undefined?parseFloat(this.chartEntry.opacity):1
             };
             if (this.chartEntry.minZoom !== undefined) layerOptions.minZoom=this.chartEntry.minZoom;
             if (this.chartEntry.maxZoom !== undefined) layerOptions.maxZoom=this.chartEntry.maxZoom;
@@ -220,15 +206,6 @@ class GpxChartSource extends ChartSourceBase{
         if (geometry instanceof olPoint){
             rt.kind='point';
             coordinates=this.mapholder.transformFromMap(geometry.getCoordinates());
-            let sym=feature.get('sym');
-            if (sym && this.chartEntry.icons){
-                rt.icon=this.getSymbolUrl(sym,'.png');
-            }
-            let link=feature.get('link');
-            if (link && this.chartEntry.icons){
-                rt.link=this.getLinkUrl(link);
-                rt.linkText=feature.get('linkText');
-            }
             rt.nextTarget=coordinates;
         }
         else{
@@ -241,9 +218,9 @@ class GpxChartSource extends ChartSourceBase{
             }
         }
         rt.coordinates=coordinates;
-        rt.desc=feature.get('desc');
-        rt.name=feature.get('name');
-        rt.sym=feature.get('sym');
+        let infoItems=['desc','name','sym','time','height','sym','link','linkText'];
+        infoItems.forEach((item)=>rt[item]=feature.get(item));
+        this.formatFeatureInfo(rt,feature,coordinates);
         for (let k in this.chartEntry){
             if (Helper.startsWith(k,stylePrefix)){
                 rt[k]=this.chartEntry[k];
@@ -311,6 +288,7 @@ export const readFeatureInfoFromGpx=(gpx)=>{
             rt.hasAny=true;
         }
     })
+    rt.allowFormatter=true;
     return rt;
 
 }

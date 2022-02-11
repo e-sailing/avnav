@@ -12,12 +12,11 @@ import Page from '../components/Page.jsx';
 import Toast,{hideToast} from '../components/Toast.jsx';
 import assign from 'object-assign';
 import OverlayDialog from '../components/OverlayDialog.jsx';
-import Promise from 'promise';
 import LayoutHandler from '../util/layouthandler.js';
 import Mob from '../components/Mob.js';
 import LayoutNameDialog from '../components/LayoutNameDialog.jsx';
 import LayoutFinishedDialog from '../components/LayoutFinishedDialog.jsx';
-import {Input,ColorSelector,Checkbox,Radio} from '../components/Inputs.jsx';
+import {Input,ColorSelector,Checkbox,Radio,InputSelect} from '../components/Inputs.jsx';
 import DB from '../components/DialogButton.jsx';
 import DimHandler from '../util/dimhandler';
 import FullScreen from '../components/Fullscreen';
@@ -25,17 +24,26 @@ import FullScreen from '../components/Fullscreen';
 const settingsSections={
     Layer:      [keys.properties.layers.base,keys.properties.layers.ais,keys.properties.layers.track,keys.properties.layers.nav,keys.properties.layers.boat,keys.properties.layers.grid,keys.properties.layers.compass],
     UpdateTimes:[keys.properties.positionQueryTimeout,keys.properties.trackQueryTimeout,keys.properties.aisQueryTimeout, keys.properties.networkTimeout ],
-    Widgets:    [keys.properties.widgetFontSize,keys.properties.showClock,keys.properties.showZoom,keys.properties.showWind,keys.properties.showDepth],
-    Buttons:    [keys.properties.style.buttonSize,keys.properties.cancelTop,keys.properties.buttonCols,keys.properties.showDimButton,keys.properties.showFullScreen],
-    Layout1:     [keys.properties.layoutName,keys.properties.baseFontSize,keys.properties.smallBreak,keys.properties.allowTwoWidgetRows,keys.properties.autoZoom,keys.properties.nightFade,
-        keys.properties.nightChartFade,keys.properties.dimFade],
-    Layout2:     [keys.properties.localAlarmSound, keys.properties.mobMinZoom,keys.properties.style.useHdpi,keys.properties.clickTolerance,keys.properties.featureInfo,keys.properties.emptyFeatureInfo],
-    AIS:        [keys.properties.aisDistance,keys.properties.aisWarningCpa,keys.properties.aisWarningTpa,keys.properties.aisTextSize,keys.properties.aisUseCourseVector,keys.properties.style.aisNormalColor,keys.properties.style.aisNearestColor,keys.properties.style.aisWarningColor,keys.properties.aisIconBorderWidth,keys.properties.aisIconScale],
+    Widgets:    [keys.properties.widgetFontSize,keys.properties.allowTwoWidgetRows,keys.properties.showClock,keys.properties.showZoom,keys.properties.showWind,keys.properties.showDepth],
+    Buttons:    [keys.properties.style.buttonSize,keys.properties.cancelTop,keys.properties.buttonCols,keys.properties.showDimButton,keys.properties.showFullScreen,
+        keys.properties.hideButtonTime,keys.properties.showButtonShade, keys.properties.autoHideNavPage,keys.properties.autoHideGpsPage,keys.properties.nightModeNavPage],
+    Layout:     [keys.properties.layoutName,keys.properties.baseFontSize,keys.properties.smallBreak,keys.properties.nightFade,
+        keys.properties.nightChartFade,keys.properties.dimFade,keys.properties.localAlarmSound ],
+    AIS:        [keys.properties.aisDistance,keys.properties.aisWarningCpa,keys.properties.aisWarningTpa,
+        keys.properties.aisMinDisplaySpeed,keys.properties.aisOnlyShowMoving,
+        keys.properties.aisFirstLabel,keys.properties.aisSecondLabel,keys.properties.aisThirdLabel,
+        keys.properties.aisTextSize,keys.properties.aisUseCourseVector,keys.properties.style.aisNormalColor,
+        keys.properties.style.aisNearestColor, keys.properties.style.aisWarningColor,keys.properties.style.aisTrackingColor,
+        keys.properties.aisIconBorderWidth,keys.properties.aisIconScale,keys.properties.aisClassbShrink,keys.properties.aisShowOnlyAB],
     Navigation: [keys.properties.bearingColor,keys.properties.bearingWidth,keys.properties.navCircleColor,keys.properties.navCircleWidth,keys.properties.navCircle1Radius,keys.properties.navCircle2Radius,keys.properties.navCircle3Radius,
-        keys.properties.navBoatCourseTime,keys.properties.boatIconScale,keys.properties.courseAverageTolerance,keys.properties.gpsXteMax,keys.properties.courseAverageInterval,keys.properties.speedAverageInterval,keys.properties.positionAverageInterval,keys.properties.anchorWatchDefault,keys.properties.anchorCircleWidth,
-        keys.properties.anchorCircleColor,keys.properties.windKnots,keys.properties.windScaleAngle],
+        keys.properties.navBoatCourseTime,keys.properties.boatIconScale,keys.properties.boatDirectionMode,
+        keys.properties.boatDirectionVector,keys.properties.courseAverageTolerance,keys.properties.gpsXteMax,keys.properties.courseAverageInterval,keys.properties.speedAverageInterval,keys.properties.positionAverageInterval,keys.properties.anchorWatchDefault,keys.properties.anchorCircleWidth,
+        keys.properties.anchorCircleColor,keys.properties.windKnots,keys.properties.windScaleAngle,keys.properties.measureColor],
+    Map:        [keys.properties.autoZoom,keys.properties.mobMinZoom,keys.properties.style.useHdpi,keys.properties.clickTolerance,keys.properties.featureInfo,keys.properties.emptyFeatureInfo,keys.properties.mapFloat,keys.properties.mapScale,keys.properties.mapUpZoom,keys.properties.mapOnlineUpZoom,
+        keys.properties.mapLockMode],
     Track:      [keys.properties.trackColor,keys.properties.trackWidth,keys.properties.trackInterval,keys.properties.initialTrackLength],
-    Route:      [keys.properties.routeColor,keys.properties.routeWidth,keys.properties.routeWpSize,keys.properties.routingTextSize,keys.properties.routeApproach,keys.properties.routeShowLL]
+    Route:      [keys.properties.routeColor,keys.properties.routeWidth,keys.properties.routeWpSize,keys.properties.routingTextSize,keys.properties.routeApproach,keys.properties.routeShowLL],
+    Remote:     [keys.properties.remoteChannelName,keys.properties.remoteChannelRead,keys.properties.remoteChannelWrite,keys.properties.remoteGuardTime]
 };
 
 const settingsConditions={
@@ -44,7 +52,14 @@ const settingsConditions={
 settingsConditions[keys.properties.dimFade]=()=>DimHandler.canHandle();
 settingsConditions[keys.properties.showDimButton]=()=>DimHandler.canHandle();
 settingsConditions[keys.properties.showFullScreen]=()=>FullScreen.fullScreenAvailable();
+settingsConditions[keys.properties.boatDirectionVector]=()=>{
+    let cur=globalStore.getData(keys.gui.settingspage.values,{})
+    return cur[keys.properties.boatDirectionMode]!== 'cog';
+}
+settingsConditions[keys.properties.aisMinDisplaySpeed]=()=>globalStore.getData(keys.gui.settingspage.values,{})[keys.properties.aisOnlyShowMoving]
 
+const sectionConditions={};
+sectionConditions.Remote=()=>globalStore.getData(keys.gui.capabilities.remoteChannel) && window.WebSocket !== undefined;
 
 /**
  * will fire a confirm dialog and resolve to 1 on changes, resolve to 0 on no changes
@@ -169,6 +184,44 @@ const ListSettingsItem=(properties)=> {
           </div>
 };
 
+const SelectSettingsItem=(properties)=> {
+    let items=[];
+    let value=properties.value;
+    for (let k in properties.values){
+        let cv=properties.values[k];
+        if (typeof(cv) !== 'object') {
+            let nv = cv.split(":");
+            if (nv.length > 1) {
+                cv={label: nv[0], value: nv[1]};
+            } else {
+                cv={label: nv[0], value: nv[0]};
+            }
+        }
+        items.push({label:cv.label,value:cv.value});
+        if (cv.value === properties.value){
+            value={label:cv.label,value:cv.value};
+        }
+    }
+    return(
+        <InputSelect
+            className={properties.className+ " listEntry"}
+            onChange={function(newVal){
+                properties.onClick(newVal);
+            }}
+            itemList={items}
+            changeOnlyValue={true}
+            value={value}
+            label={properties.label}
+            resetCallback={(ev)=>{
+                properties.onClick(properties.defaultv);
+            }}
+        >
+        </InputSelect>
+    )
+};
+
+
+
 
 const ColorSettingsItem=(properties)=>{
     let style={
@@ -201,6 +254,9 @@ const createSettingsItem=(item)=>{
     if (item.type == PropertyType.LIST){
         return ListSettingsItem;
     }
+    if (item.type == PropertyType.SELECT){
+        return SelectSettingsItem;
+    }
     return (props)=>{
         return (<div className="listEntry">
             <div className="label">{props.label}</div>
@@ -232,11 +288,36 @@ const LayoutItem=(props)=>
                     LayoutHandler.loadLayout(item.name)
                         .then((layout)=>{
                             let layoutProps=LayoutHandler.getLayoutProperties();
-                            for (let k in layoutProps){
-                                changeItem({name:k},layoutProps[k])
+                            let hasChanges=false;
+                            if (Object.keys(layoutProps).length) {
+                                let current = globalStore.getData(keys.gui.settingspage.values, {});
+                                for (let k in layoutProps) {
+                                    if (current[k] !== layoutProps[k]) {
+                                        hasChanges = true;
+                                        break;
+                                    }
+                                }
                             }
-                            changeItem(props,item.name);
-                            history.pop();
+                            if (hasChanges){
+                                OverlayDialog.confirm("The layout contains settings - do you want it to override your settings with the included ones?")
+                                    .then((x)=>{
+                                        for (let k in layoutProps){
+                                            changeItem({name:k},layoutProps[k])
+                                        }
+                                        changeItem(props,item.name);
+                                        history.pop();
+                                    })
+                                    .catch(()=> {
+                                        changeItem(props,item.name);
+                                        history.pop();
+                                        Toast("settings from layout ignored");
+                                    });
+                            }
+                            else{
+                                changeItem(props,item.name);
+                                history.pop();
+                            }
+
                         })
                         .catch((error)=>{
                             Toast(error+"");
@@ -484,9 +565,24 @@ class SettingsPage extends React.Component{
             let currentSection = globalStore.getData(keys.gui.settingspage.section, 'Layer');
             let sectionItems = [];
             for (let s in settingsSections) {
+                let sectionCondition=sectionConditions[s];
+                if (sectionCondition !== undefined){
+                    if (! sectionCondition()) continue;
+                }
                 let item = {name: s};
                 if (s === currentSection) item.activeItem = true;
                 sectionItems.push(item);
+            }
+            let hasCurrentSection=false;
+            sectionItems.forEach((item)=>{
+                if (item.name === currentSection){
+                    hasCurrentSection=true;
+                }
+            });
+            if (! hasCurrentSection){
+                currentSection=sectionItems[0].name;
+                sectionItems[0].activeItem=true;
+                globalStore.storeData(keys.gui.settingspage.section,currentSection);
             }
             let settingsItems = [];
             if (settingsSections[currentSection]) {

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 ###############################################################################
@@ -23,7 +23,6 @@
 #  DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
-from __future__ import with_statement
 
 import os
 import logging
@@ -84,14 +83,14 @@ class RefPoints(object):
 
         ld('RefPoints',self.__dict__)
 
-        nrefs=len(filter(None,(self.pixels,self.latlong,self.cartesian))[0])
+        nrefs=len(list(filter(None,(self.pixels,self.latlong,self.cartesian)))[0])
         if not self.ids:
-            self.ids=map(str,range(1,nrefs+1))
+            self.ids=list(map(str,list(range(1,nrefs+1))))
 
         if nrefs == 2:
             logging.warning(' Only 2 reference points: assuming the chart is north alligned')
             self.ids += ['Extra03','Extra04']
-            for i in filter(None,(self.pixels,self.latlong,self.cartesian,self.zone,self.hemisphere)):
+            for i in [_f for _f in (self.pixels,self.latlong,self.cartesian,self.zone,self.hemisphere) if _f]:
                 try: # list of coordinates? -- swap x and y between them
                     i.append((i[0][0],i[1][1]))
                     i.append((i[1][0],i[0][1]))
@@ -100,7 +99,6 @@ class RefPoints(object):
                     i.append(i[1])
             ld('RefPoints extra',self.__dict__)
 
-        self.ids=[s.encode('utf-8') for s in self.ids]
 
     def srs(self):
         return self.owner.srs
@@ -135,8 +133,8 @@ class RefPoints(object):
 
     def over_180(self):
         if not self.cartesian: # refs are lat/long
-            leftmost=min(zip(self.pixels,self.latlong),key=lambda r: r[0][0])
-            rightmost=max(zip(self.pixels,self.latlong),key=lambda r: r[0][0])
+            leftmost=min(list(zip(self.pixels,self.latlong)),key=lambda r: r[0][0])
+            rightmost=max(list(zip(self.pixels,self.latlong)),key=lambda r: r[0][0])
             ld('leftmost',leftmost,'rightmost',rightmost)
             if leftmost[1][0] > rightmost[1][0]:
                 return leftmost[1][0]
@@ -151,9 +149,9 @@ class LatLonRefPoints(RefPoints):
     def __init__(self,owner,ref_lst):
         super(LatLonRefPoints,self).__init__(
             owner,
-            **dict(zip(
+            **dict(list(zip(
                 ['ids','pixels','latlong'],
-                self.transpose(ref_lst)[:3]))
+                self.transpose(ref_lst)[:3])))
             )
 
 ###############################################################################
@@ -166,16 +164,15 @@ class SrcMap(object):
         gdal.UseExceptions()
 
         self.load_data() # load datum definitions, ellipses, projections
-        self.file=src_file.decode(locale.getpreferredencoding(),'ignore')
+        self.file=src_file
         self.header=self.get_header()       # Read map header
 
     def load_csv(self,csv_file,csv_map):
         'load datum definitions, ellipses, projections from a file'
         csv.register_dialect('strip', skipinitialspace=True)
-        with open(os.path.join(data_dir(),csv_file),'rb') as data_f:
+        with open(os.path.join(data_dir(),csv_file),'r',encoding='utf-8') as data_f:
             data_csv=csv.reader(data_f,'strip')
             for row in data_csv:
-                row=[s.decode('utf-8') for s in row]
                 #ld(row)
                 try:
                     dct,unpack=csv_map[row[0]]
@@ -184,7 +181,7 @@ class SrcMap(object):
                     pass
                 except KeyError:
                     pass
-        for dct,func in csv_map.values():
+        for dct,func in list(csv_map.values()):
             ld(dct)
 
     def ini_lst(self,dct,row):
@@ -251,7 +248,7 @@ class SrcLayer(object):
             proj4.extend(datum)
         proj4.extend(['+nodefs']) # '+wktext',
         ld('proj4',proj4)
-        return ' '.join(proj4).encode('utf-8'),dtm
+        return ' '.join(proj4),dtm
 
     def convert(self,dest=None):
         options=self.map.options
@@ -280,7 +277,8 @@ class SrcLayer(object):
                 os.chdir(dst_dir)
 
             dst_drv = gdal.GetDriverByName(out_format)
-            dst_ds = dst_drv.CreateCopy(dst_file.encode(locale.getpreferredencoding()),
+            dst_file=os.path.abspath(dst_file)
+            dst_ds = dst_drv.CreateCopy(dst_file,
                                         self.raster_ds,0)
             dst_ds.SetProjection(self.srs)
 
@@ -294,8 +292,8 @@ class SrcLayer(object):
             if poly:
                 dst_ds.SetMetadataItem('CUTLINE',poly)
             if self.name:
-                dst_ds.SetMetadataItem('DESCRIPTION',self.name.encode('utf-8'))
-
+                dst_ds.SetMetadataItem('DESCRIPTION',self.name)
+            dst_ds.FlushCache()
             del dst_ds # close dataset
 #            re_sub_file(dst_file, [
 #                    ('^.*<GeoTransform>.*\n',''),
@@ -305,10 +303,10 @@ class SrcLayer(object):
             os.chdir(start_dir)
 
         if options.get_cutline: # print cutline then return
-            print poly
+            print(poly)
             return
         if gmt_data and options.cut_file: # create shapefile with a cut polygon
-            with open(base+'.gmt','w+') as f:
+            with open(base+'.gmt','w+',encoding='utf-8') as f:
                 f.write(gmt_data)
 
     gmt_templ='''# @VGMT1.0 @GPOLYGON

@@ -1,9 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?><!-- configuration for avnav_server on windows
-     we do not have a gpsd and we can only directly use serial readers --><AVNServer>
+<?xml version="1.0" ?><!-- configuration for avnav_server on windows
+we do not have a gpsd and we can only directly use serial readers -->
+<AVNServer>
 <AVNConfig debugToLog="true" loglevel="DEBUG" settimecmd="beep" settimeperiod="3600" systimediff="5"/>
 <Readers>
 <!--<AVNGpsdFeeder useGpsd="false" listenerPort="0" port="0" />-->
-<AVNGpsdFeeder gpsdcommand="/usr/sbin/gpsd -b -n -N -G" listenerPort="4020" port="2947" useGpsd="false"/>
+<AVNFeeder/>
 <!-- <AVNSerialReader name="com4reader" port="3" useFeeder="true"/>-->
 <!-- add readers here for com ports that you want to listen on -->
 <!--<AVNSerialReader useFeeder="true" name="usb1reader" port="/dev/ttyUSB2" baud="38400" minbaud="4800"/>-->
@@ -43,6 +44,7 @@
 	<UsbDevice baud="38400" filter="$RMC" timeout="10" type="combined" usbid="3-4.3.1:1.0" xonxoff="1"/>
 	<!-- a device to be ignored - e.g. for testing -->
 	<UsbDevice baud="38400" type="ignore" usbid="3-10.1:1.0"/>
+	<UsbDevice baud="38400" type="ignore" usbid="3-2.2:1.0"/>
 	<UsbDevice baud="38400" type="ignore" usbid="3-2.1:1.0"/>
 	<UsbDevice baud="38400" type="ignore" usbid="3-2.3.1:1.0"/>
 	<!-- a reader with autobaud and filter - it will filter out any RMC records and all AIS stuff-->
@@ -50,6 +52,7 @@
 	<!-- a pure writer that outputs RMB -->
 	<UsbDevice baud="4800" filter="$RMB" minbaud="4800" type="writer" usbid="3-10.3.1:1.0"/>
 	<!--<UsbDevice usbid="3-4.3.2:1.0" baud="38400" minbaud="4800" type="ignore" filter=""/>-->
+<UsbDevice baud="115200" type="reader" usbid="2-2:1.0"/>
 </AVNUsbSerialReader>
 
 
@@ -60,7 +63,7 @@
 	<AVNUdpReader minTime="100" port="34667"/>
 </Readers>
 <!-- provide your data at this port for e.g. OpenCPN -->
-<AVNSocketWriter filter="" maxDevices="5" minTime="100" port="34567" read="true"/>
+<AVNSocketWriter avahiEnabled="True" filter="" maxDevices="5" minTime="100" port="34567" read="true"/>
 <AVNSocketWriter blackList="testreader" filter="$RMB" maxDevices="5" minTime="100" port="34571" read="true"/>
 <AVNTrackWriter distance="100" interval="10"/>
 <AVNHttpServer chartbase="maps" empty="nonexistent" httpPort="8081" navurl="/viewer/avnav_navi.php" upzoom="0">
@@ -76,9 +79,8 @@
 <!-- create chart overview files -->
 <AVNChartHandler/>
     <!--  routing handler -->
-<AVNRouter computeAPB="true"/>
-<AVNNmeaLogger filter="$RMC" interval="0"></AVNNmeaLogger>-->
-<AVNNmeaLogger/>
+<AVNRouter computeAPB="true" computeRMB="true"/>
+<AVNNmeaLogger filter="$RMC" />
 <AVNImporter/>
 <AVNWpaHandler allowDenyCommand="sudo $BASEDIR/../raspberry/iptables-ext.sh wlx0013eff503f2" wpaSocket="/var/run/wpa_supplicant/wlx0013eff503f2"/>
 <AVNCommandHandler>
@@ -99,6 +101,7 @@
 	<builtin-canboat allowKeyOverwrite="true" autoSendRMC="30" enabled="true" host="localhost" sourceName="canboat"/>
 <!--	<user-ocharts chartdir="/home/andreas/projects/ocharts-provider/charts" debug="10"/>-->
 <!--	<user-ocharts chartdir="/home/andreas/OCharts/desktop-DE-2020-13" ocpnPluginDir="/home/andreas/projects/oesenc_pi/debug" memPercent="3" debug="10" prefillZoom="17"/>-->
+	<user-mapproxy guiPath="gui/build/debug/index.html"/>
 </AVNPluginHandler>
 
 
@@ -108,4 +111,5 @@
 <UserTool icon="/user/images/boat.svg" keepUrl="False" name="58c34d627f8619cdea67dd5b26b4440d" title="haha5" url="/user/viewer/kaese.html"/>
 <UserTool icon="/user/images/Kaese.jpg" keepUrl="False" name="b0d0769e65f90b6e4efa127f504a7bd8" title="Großer Käase!" url="/user/viewer/kaese.html"/>
 </AVNUserAppHandler>
+<AVNNmea0183ServiceReader enabled="False" name="converter" serviceName="ESP32NMEA2K"/>
 </AVNServer>

@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013-2017 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2013-2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -26,9 +25,6 @@
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py
 #  parts contributed by free-x https://github.com/free-x
 ###############################################################################
-
-import time
-import threading
 
 hasSenseHat=False
 try:
@@ -56,31 +52,48 @@ class AVNSenseHatReader(AVNWorker):
   def getConfigParam(cls, child=None):
     if not child is None:
       return None
-    rt = {
-      'feederName': '',  # if this one is set, we do not use the defaul feeder but this one
-      'interval': '5',
-      'writeMda': 'true',
-      'writeXdr': 'true'
-    }
+    rt = [
+      WorkerParameter('feederName','',editable=False),
+      WorkerParameter('interval', 5,type=WorkerParameter.T_FLOAT),
+      WorkerParameter('writeMda',True,type=WorkerParameter.T_BOOLEAN),
+      WorkerParameter('writeXdr',True,type=WorkerParameter.T_BOOLEAN),
+      WorkerParameter('namePress', 'Barometer',
+                      description="XDR transducer name for pressure"),
+      WorkerParameter('nameHumid', 'Humidity',
+                      description="XDR transducer name for humidity"),
+      WorkerParameter('nameTemp', 'TempAir',
+                      description="XDR transducer name for temperature"),
+    ]
     return rt
+
+  @classmethod
+  def canEdit(cls):
+    return hasSenseHat
+
+  @classmethod
+  def canDeleteHandler(cls):
+    return hasSenseHat
+
+  @classmethod
+  def canDisable(cls):
+    return True
 
   def isDisabled(self):
     if not hasSenseHat:
       return True
-    return super(AVNSenseHatReader, self).isDisabled()
+    return super().isDisabled()
 
 
   # thread run method - just try forever
   def run(self):
-    self.setName(self.getThreadPrefix())
-    self.setInfo('main', "reading sense", AVNWorker.Status.NMEA)
+    self.setInfo('main', "reading sense", WorkerStatus.NMEA)
     sense = SenseHat()
-    source=self.getSourceName()
     while True:
+      source = self.getSourceName()
       try:
         if self.getBoolParam('writeMda'):
           """$AVMDA,,,1.00000,B,,,,,,,,,,,,,,,,"""
-          mda = '$AVMDA,,,%.5f,B,,,,,,,,,,,,,,,,' % ( sense.pressure / 1000.)
+          mda = '$AVMDA,,,%.5f,B,,,,,,,,,,,,,,,,' % ( sense.pressure/1000.)
           AVNLog.debug("SenseHat:MDA %s", mda)
           self.writeData(mda,source,addCheckSum=True)
           """$AVMTA,19.50,C*2B"""
@@ -88,15 +101,16 @@ class AVNSenseHatReader(AVNWorker):
           AVNLog.debug("SenseHat:MTA %s", mta)
           self.writeData(mta,source,addCheckSum=True)
         if self.getBoolParam('writeXdr'):
-          xdr = '$AVXDR,P,%.5f,B,Barometer' % (sense.pressure / 1000.)
+          tn = self.param.get('namePress', 'Barometer')
+          xdr = '$AVXDR,P,%.5f,B,%s' % (sense.pressure/ 1000.,tn)
           AVNLog.debug("SenseHat:XDR %s", xdr)
           self.writeData(xdr,source,addCheckSum=True)
-
-          xdr = '$AVXDR,C,%.2f,C,TempAir' % (sense.temp)
+          tn = self.param.get('nameTemp', 'TempAir')
+          xdr = '$AVXDR,C,%.2f,C,%s' % (sense.temp,tn)
           AVNLog.debug("SenseHat:XDR %s", xdr)
           self.writeData(xdr,source,addCheckSum=True)
-
-          xdr = '$AVXDR,H,%.2f,P,Humidity' % (sense.humidity)
+          tn = self.param.get('nameHumid', 'Humidity')
+          xdr = '$AVXDR,H,%.2f,P,%s' % (sense.humidity,tn)
           AVNLog.debug("SenseHat:XDR %s", xdr)
           self.writeData(xdr,source,addCheckSum=True)
 
@@ -105,7 +119,7 @@ class AVNSenseHatReader(AVNWorker):
       wt = self.getFloatParam("interval")
       if not wt:
         wt = 5.0
-      time.sleep(wt)
+      self.wait(wt)
 
 
 avnav_handlerList.registerHandler(AVNSenseHatReader)

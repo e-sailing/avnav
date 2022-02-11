@@ -14,6 +14,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 
 import de.wellenvogel.avnav.util.AvnLog;
+import de.wellenvogel.avnav.worker.GpsService;
 
 public class UserDirectoryRequestHandler extends DirectoryRequestHandler {
     private static final byte[] PREFIX="try{(\nfunction(){\n".getBytes(StandardCharsets.UTF_8);
@@ -65,9 +66,9 @@ public class UserDirectoryRequestHandler extends DirectoryRequestHandler {
             mode=3;
         }
     };
-    public UserDirectoryRequestHandler(RequestHandler handler, IDeleteByUrl deleter) throws Exception {
-        super(RequestHandler.TYPE_USER, handler.getWorkDirFromType(RequestHandler.TYPE_USER), "user/viewer", deleter);
-        AssetManager assets=handler.activity.getAssets();
+    public UserDirectoryRequestHandler(RequestHandler handler, GpsService ctx,IDeleteByUrl deleter) throws Exception {
+        super(RequestHandler.TYPE_USER, ctx,handler.getWorkDirFromType(RequestHandler.TYPE_USER), "user/viewer", deleter);
+        AssetManager assets=handler.service.getAssets();
         for (String filename : templateFiles){
             File file=new File(workDir,filename);
             if (! file.exists()){
@@ -103,7 +104,7 @@ public class UserDirectoryRequestHandler extends DirectoryRequestHandler {
         }
     }
     @Override
-    public ExtendedWebResourceResponse handleDirectRequest(Uri uri, RequestHandler handler) throws Exception {
+    public ExtendedWebResourceResponse handleDirectRequest(Uri uri, RequestHandler handler, String method) throws Exception {
         String path=uri.getPath();
         if (path == null) return null;
         if (path.startsWith("/")) path=path.substring(1);
@@ -111,11 +112,11 @@ public class UserDirectoryRequestHandler extends DirectoryRequestHandler {
         path = path.substring((urlPrefix.length()+1));
         String[] parts = path.split("/");
         if (parts.length < 1) return null;
-        if (parts.length > 1) return super.handleDirectRequest(uri, handler);
+        if (parts.length > 1) return super.handleDirectRequest(uri, handler, method);
         String name= URLDecoder.decode(parts[0],"UTF-8");
-        if (!name.equals("user.js")) return super.handleDirectRequest(uri, handler);
+        if (!name.equals("user.js")) return super.handleDirectRequest(uri, handler, method);
         File foundFile=new File(workDir,name);
-        if (! foundFile.exists()) return super.handleDirectRequest(uri, handler);
+        if (! foundFile.exists()) return super.handleDirectRequest(uri, handler, method);
         String base="/"+urlPrefix;
         byte[] baseUrl=("var AVNAV_BASE_URL=\""+base+"\";\n").getBytes(StandardCharsets.UTF_8);
         long flen=foundFile.length()+SUFFIX.length+PREFIX.length+baseUrl.length;

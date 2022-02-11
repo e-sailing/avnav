@@ -1,10 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
-from compiler.pyassem import CONV
 
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #  parts of this software are based on tiler_tools (...)
 #  the license terms (see below) apply to the complete software the same way
 #
@@ -29,8 +28,7 @@ from compiler.pyassem import CONV
 #  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 #  DEALINGS IN THE SOFTWARE.
 ###############################################################################
-import gdal
-import osgeo
+from osgeo import gdal
 import os
 import sys
 import re
@@ -47,10 +45,10 @@ def ttConvert(chart,outdir,outname,tilertools):
   
   
 def slog(txt):
-  print "LOG %s"%(txt,)
+  print("LOG %s"%(txt,))
 
 def swarn(txt):
-  print "WARNING %s"%(txt,)
+  print("WARNING %s"%(txt,))
 
 
 #------------------------------------------------
@@ -88,7 +86,7 @@ def nvConvert(chart,outdir,outname,tilertools,logf,warn,updateOnly=False):
       break
     if proc.stdout.closed:
       break
-    logf("CONVERTNV: "+line.rstrip('\n'))
+    logf("CONVERTNV: "+line.rstrip(b'\n').decode('utf-8',errors='ignore'))
     if proc.poll() is not None:
       break
   rt=proc.wait()
@@ -128,20 +126,20 @@ def nvConvert(chart,outdir,outname,tilertools,logf,warn,updateOnly=False):
     srcds=None
     dstds=None
   except:
-    warn("error in hdal convert handling")
+    warn("error in gdal convert handling")
     return
   if not os.path.exists(tifvrt):
     warn("temp vrt file %s not created"%(tifvrt,))
     return
   #now merge the 2 vrt files
   origvrtdata=None
-  with open(outname,"r") as f:
+  with open(outname,"r",encoding='utf-8',errors='ignore') as f:
     origvrtdata=f.read()
   if origvrtdata is None:
     warn("unable to read %s"%(outname,))
     return
   tmpvrtdata=None
-  with open(tifvrt,"r") as f:
+  with open(tifvrt,"r",encoding='utf-8') as f:
     tmpvrtdata=f.read()
   if tmpvrtdata is None:
     warn("unable to read %s"%(tifvrt,))
@@ -159,13 +157,13 @@ def nvConvert(chart,outdir,outname,tilertools,logf,warn,updateOnly=False):
       doAdd=True
       origvrtdata+=mline
   os.unlink(outname)
-  with open(outname,"w") as f:
+  with open(outname,"w",encoding='utf-8') as f:
     f.write(origvrtdata)
   logf("successfully created merged vrt %s"%(chart,))  
   
 if __name__ == '__main__':
   if len(sys.argv) != 4:
-    print "usage: %s chartname outdir tilertoolsdir"%(sys.argv[0],)
+    print("usage: %s chartname outdir tilertoolsdir"%(sys.argv[0],))
     sys.exit(1)
   nvConvert(sys.argv[1], sys.argv[2], os.path.join(sys.argv[2],os.path.basename(sys.argv[1])+".vrt"), 
             sys.argv[3],  slog, swarn, False)

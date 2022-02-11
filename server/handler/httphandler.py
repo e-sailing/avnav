@@ -1,21 +1,38 @@
-import SimpleHTTPServer
-import StringIO
+import http.server
+import io
 import cgi
 import json
 import os
 import posixpath
 import re
-import shutil
 import threading
 import traceback
-import urllib
-import urlparse
-from cookielib import request_path
-from os import path
+import urllib.request, urllib.parse, urllib.error
+import urllib.parse
 
 from avnav_store import AVNStore
-from avnav_util import AVNUtil, AVNLog
+from avnav_util import AVNUtil, AVNLog, AVNDownload
+from avnav_websocket import HTTPWebSocketsHandler
 from avnav_worker import AVNWorker
+
+class WebSocketHandler(object):
+  def __init__(self,handler):
+    """
+
+    @type handler: AVNHTTPHandler
+    """
+    self.handler=handler
+    self.connected=False
+  def send_message(self,message):
+    if self.connected:
+      self.handler.send_message(message)
+  def on_ws_message(self, message):
+    """Override this handler to process incoming websocket messages."""
+    pass
+  def on_ws_connected(self):
+    self.connected=True
+  def on_ws_closed(self):
+    self.connected=False
 
 
 class Encoder(json.JSONEncoder):
@@ -28,48 +45,50 @@ class Encoder(json.JSONEncoder):
       return o.serialize()
     return super(Encoder, self).default(o)
 
-class AVNDownload(object):
-  def __init__(self, filename, size=None, stream=None, mimeType=None):
-    self.filename = filename
-    self.size = size
-    self.stream = stream
-    self.mimeType = mimeType
 
-  def getSize(self):
-    if self.size is None:
-      return os.path.getsize(self.filename)
-    return self.size
-
-  def getStream(self):
-    if self.stream is None:
-      return open(self.filename, 'rb')
-    return self.stream
-
-  def getMimeType(self, handler=None):
-    if self.mimeType is not None:
-      return self.mimeType
-    if handler is None:
-      return "application/octet-stream"
-    return handler.guess_type(self.filename)
-
-
-class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
+class AVNHTTPHandler(HTTPWebSocketsHandler):
+  wsHandler: WebSocketHandler
+  protocol_version = "HTTP/1.1" #necessary for websockets!
   def __init__(self,request,client_address,server):
     #allow write buffering
     #see https://lautaportti.wordpress.com/2011/04/01/basehttprequesthandler-wastes-tcp-packets/
     self.wbufsize=-1
     self.id=None
     self.getRequestParam=AVNUtil.getHttpRequestParam
+    threading.current_thread().setName("HTTPHandler")
     AVNLog.ld("receiver thread started",client_address)
-    SimpleHTTPServer.SimpleHTTPRequestHandler.__init__(self, request, client_address, server)
+    http.server.SimpleHTTPRequestHandler.__init__(self, request, client_address, server)
+    self.wsHandler=None
 
   def log_message(self, format, *args):
-    if self.id is None:
-      self.id=AVNLog.getThreadId()
-      if self.id is None:
-        self.id="?"
-      threading.current_thread().setName("[%s]HTTPHandler"%(self.id))
     AVNLog.debug(format,*args)
+
+  def allow_ws(self):
+    (path,query) = self.server.pathQueryFromUrl(self.path)
+    try:
+      #handlers will either return
+      #True if already done
+      #None if no mapping found (404)
+      #a path to be sent
+      self.wsHandler=self.server.getWebSocketsHandler(path,query,handler=self)
+      return True
+    except Exception as e:
+      return False
+
+  def on_ws_message(self, message):
+    if self.wsHandler is None:
+      raise Exception("no websocket handler")
+    self.wsHandler.on_ws_message(message)
+
+  def on_ws_connected(self):
+    if self.wsHandler is None:
+      raise Exception("no websocket handler")
+    self.wsHandler.on_ws_connected()
+
+  def on_ws_closed(self):
+    if self.wsHandler is None:
+      raise Exception("no websocket handler")
+    self.wsHandler.on_ws_closed()
 
   def do_POST(self):
     maxlen=5000000
@@ -78,28 +97,28 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
       self.send_error(404, "unsupported post url")
       return
     try:
-      ctype, pdict = cgi.parse_header(self.headers.getheader('content-type'))
+      ctype, pdict = cgi.parse_header(self.headers.get('content-type'))
       if ctype == 'multipart/form-data':
         postvars = cgi.parse_multipart(self.rfile, pdict)
       elif ctype == 'application/x-www-form-urlencoded':
-        length = int(self.headers.getheader('content-length'))
+        length = int(self.headers.get('content-length'))
         if length > maxlen:
-          raise Exception("too much data"+unicode(length))
-        postvars = cgi.parse_qs(self.rfile.read(length), keep_blank_values=1)
+          raise Exception("too much data"+str(length))
+        postvars = cgi.parse_qs(self.rfile.read(length).decode('utf-8'), keep_blank_values=1)
       elif ctype == 'application/json':
-        length = int(self.headers.getheader('content-length'))
+        length = int(self.headers.get('content-length'))
         if length > maxlen:
-          raise Exception("too much data"+unicode(length))
-        postvars = { '_json':self.rfile.read(length)}
+          raise Exception("too much data"+str(length))
+        postvars = { '_json':self.rfile.read(length).decode('utf-8')}
       else:
         postvars = {}
-      requestParam=urlparse.parse_qs(query,True)
+      requestParam=urllib.parse.parse_qs(query,True)
       requestParam.update(postvars)
       self.handleNavRequest(path,requestParam)
     except Exception as e:
       txt=traceback.format_exc()
       AVNLog.ld("unable to process request for ",path,query,txt)
-      self.send_response(500,txt);
+      self.send_response(500,txt)
       self.end_headers()
       return
 
@@ -134,6 +153,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             self.send_response(301)
             self.send_header("Location", self.path + "/")
             self.end_headers()
+            self.close_connection=True
             return None
         for index in "index.html", "index.htm":
             index = os.path.join(path, index)
@@ -184,9 +204,9 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         #a path to be sent
         extPath=self.server.tryExternalMappings(path,query,handler=self)
       except Exception as e:
-        self.send_error(404,e.message)
+        self.send_error(404,str(e))
         return None
-      if isinstance(extPath,AVNDownload):
+      if isinstance(extPath, AVNDownload):
         self.writeFromDownload(extPath)
         return None
       if extPath == True:
@@ -194,7 +214,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
       if extPath is not None:
         return extPath
       if path.startswith(self.server.navurl):
-        requestParam=urlparse.parse_qs(query,True)
+        requestParam=urllib.parse.parse_qs(query,True)
         self.handleNavRequest(path,requestParam)
         return None
       if path=="" or path=="/":
@@ -202,6 +222,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         self.send_response(301)
         self.send_header("Location", path)
         self.end_headers()
+        self.close_connection=True
         return None
 
       return self.server.plainUrlToPath(path)
@@ -216,10 +237,11 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         self.send_header("Content-type", "text/javascript")
       else:
         self.send_header("Content-type", "application/json")
-      self.send_header("Content-Length", str(len(rtj)))
+      wbytes=rtj.encode('utf-8')
+      self.send_header("Content-Length", str(len(wbytes)))
       self.send_header("Last-Modified", self.date_time_string())
       self.end_headers()
-      self.wfile.write(rtj)
+      self.wfile.write(wbytes)
       AVNLog.ld("nav response",rtj)
     else:
       raise Exception("empty response")
@@ -230,8 +252,8 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     @param filename:
     @return:
     '''
-    PREFIX="try{(\nfunction(){\nvar AVNAV_BASE_URL=\"%s\";\n"%urllib.quote(baseUrl)
-    SUFFIX="\n})();\n}catch(e){\nwindow.avnav.api.showToast(e.message+\"\\n\"+(e.stack||e));\n }\n"
+    PREFIX=("try{(\nfunction(){\nvar AVNAV_BASE_URL=\"%s\";\n"%urllib.parse.quote(baseUrl)).encode('utf-8')
+    SUFFIX="\n})();\n}catch(e){\nwindow.avnav.api.showToast(e.message+\"\\n\"+(e.stack||e));\n }\n".encode('utf-8')
     if not os.path.exists(filename):
       self.send_error(404,"File not found")
       return
@@ -239,6 +261,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     flen=os.path.getsize(filename)
     dlen=flen+len(PREFIX)+len(SUFFIX)
     if addCode is not None:
+      addCode=addCode.encode('utf-8')
       dlen+=len(addCode)
     self.send_header("Content-type", "text/javascript")
     self.send_header("Content-Length", str(dlen))
@@ -247,7 +270,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     self.wfile.write(PREFIX)
     if addCode is not None:
       self.wfile.write(addCode)
-    fh=open(filename,"r")
+    fh=open(filename,"rb")
     self.writeStream(flen,fh)
     self.wfile.write(SUFFIX)
     return True
@@ -284,6 +307,8 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         rtj=self.handleStatusRequest(requestParam)
       elif requestType=='debuglevel' or requestType=='loglevel':
         rtj=self.handleDebugLevelRequest(requestParam)
+      elif requestType=='currentloglevel':
+        rtj=self.handleCurrentLevelRequest(requestParam)
       elif requestType=='listdir' or requestType == 'list':
         rtj=self.handleListDir(requestParam)
       elif requestType=='download':
@@ -295,8 +320,8 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         try:
           rtj=self.handleUploadRequest(requestParam)
         except Exception as e:
-          AVNLog.error("upload error: %s",unicode(e))
-          rtj=json.dumps({'status':unicode(e)},cls=Encoder)
+          AVNLog.error("upload error: %s",str(e))
+          rtj=json.dumps({'status':str(e)},cls=Encoder)
       elif requestType=='delete':
         rtj=self.handleDeleteRequest(requestParam)
 
@@ -311,7 +336,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         rtj=self.handleSpecificRequest(requestParam,requestType)
       self.sendNavResponse(rtj,requestParam)
     except Exception as e:
-          text=unicode(e)
+          text=str(e)
           rtj=json.dumps(AVNUtil.getReturnData(error=text,stack=traceback.format_exc()),cls=Encoder)
           self.sendNavResponse(rtj,requestParam)
           return
@@ -358,7 +383,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             fentry['distance']=mdist*AVNUtil.NM #have this in m
             frt.append(fentry)
           else:
-            AVNLog.debug("filtering out %s due to distance %f",unicode(fentry['mmsi']),mdist)
+            AVNLog.debug("filtering out %s due to distance %f",str(fentry['mmsi']),mdist)
         except:
           AVNLog.debug("unable to convert ais data: %s",traceback.format_exc())
     else:
@@ -407,28 +432,50 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
   def handleStatusRequest(self,requestParam):
     rt=[]
-    for handler in AVNWorker.getAllHandlers(True):
-      entry={'configname':handler.getConfigName(),
-             'config': handler.getParam(),
-             'name':handler.getStatusName(),
-             'info':handler.getInfo(),
-             'disabled': handler.isDisabled(),
-             'properties':handler.getStatusProperties() if not handler.isDisabled() else {}}
-      rt.append(entry)
+    allHandlers=AVNWorker.getAllHandlers(True)
+    #find for each type the first id
+    typIds={}
+    for h in allHandlers:
+      type=h.getConfigName()
+      if typIds.get(type) is None:
+        typIds[type]=h.getId()
+    #get the sorted list of typeIds
+    typeList=sorted(typIds.keys(),key=lambda k: typIds[k])
+    for type in typeList:
+      for handler in AVNWorker.getAllHandlers(True):
+        if handler.getConfigName() != type: continue
+        entry={'configname':handler.getConfigName(),
+            'config': handler.getParam(),
+            'name':handler.getStatusName(),
+            'info':handler.getInfo(),
+            'disabled': handler.isDisabled(),
+            'properties':handler.getStatusProperties() if not handler.isDisabled() else {},
+            'canDelete':handler.canDeleteHandler(),
+            'canEdit': handler.canEdit(),
+            'id':handler.getId()
+              }
+        rt.append(entry)
     return json.dumps({'handler':rt},cls=Encoder)
+
   def handleDebugLevelRequest(self,requestParam):
     rt={'status':'ERROR','info':'missing parameter'}
     level=self.getRequestParam(requestParam,'level')
+    timeout = self.getRequestParam(requestParam, 'timeout',mantadory=False)
+    if timeout is not None:
+      timeout=float(timeout)
+    filter=self.getRequestParam(requestParam,'filter')
     if not level is None:
-      crt=AVNLog.changeLogLevel(level)
+      crt=AVNLog.changeLogLevelAndFilter(level,filter,timeout)
       if crt:
         rt['status']='OK'
         rt['info']='set loglevel to '+str(level)
       else:
         rt['info']="invalid level "+str(level)
-    filter=self.getRequestParam(requestParam,'filter')
-    AVNLog.setFilter(filter)
     return json.dumps(rt,cls=Encoder)
+
+  def handleCurrentLevelRequest(self,requestParam):
+    (level,filter)=AVNLog.getCurrentLevelAndFilter()
+    return json.dumps({'status':'OK','level':level,'filter':filter},cls=Encoder)
 
   def writeStream(self,bToSend,fh):
     maxread = 1000000
@@ -443,17 +490,22 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
   def writeData(self,data,mimeType):
     self.send_response(200)
     self.send_header("Content-type", mimeType)
-    self.send_header("Content-Length", len(data))
+    wbytes=None
+    if type(data) == bytes:
+      wbytes=data
+    else:
+      wbytes=data.encode('utf-8')
+    self.send_header("Content-Length", str(len(wbytes)))
     self.send_header("Last-Modified", self.date_time_string())
     self.end_headers()
-    self.wfile.write(data)
+    self.wfile.write(wbytes)
 
   def writeFromDownload(self,download,filename=None,noattach=False):
-    # type: (AVNDownload, basestring,bool) -> object or None
+    # type: (AVNDownload, str,bool) -> object or None
     self.send_response(200)
     size = download.getSize()
     if filename is not None and filename != "" and not noattach:
-      self.send_header("Content-Disposition", "attachment")
+      self.send_header("Content-Disposition", "attachment; %s"%AVNDownload.fileToAttach(filename))
     self.send_header("Content-type", download.getMimeType(self))
     self.send_header("Content-Length", size)
     self.send_header("Last-Modified", self.date_time_string())
@@ -477,7 +529,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         dl=handler.handleApiRequest('download',type,requestParam,handler=self)
         if dl is None:
           raise Exception("unable to download %s",type)
-        if isinstance(dl,AVNDownload):
+        if isinstance(dl, AVNDownload):
           try:
             self.writeFromDownload(dl,
               filename=self.getRequestParam(requestParam, "filename")
@@ -496,14 +548,14 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         self.send_response(200)
         fname = self.getRequestParam(requestParam, "filename")
         if fname is not None and fname != "" and self.getRequestParam(requestParam,'noattach') is None:
-          self.send_header("Content-Disposition", "attachment")
+          self.send_header("Content-Disposition", 'attachment;%s'%AVNDownload.fileToAttach(fname))
         self.send_header("Content-type", dl['mimetype'])
         self.send_header("Content-Length", dl['size'])
         self.send_header("Last-Modified", self.date_time_string())
         self.end_headers()
         try:
           self.writeStream(dl['size'],dl['stream'])
-        except:
+        except Exception as e:
           try:
             dl['stream'].close()
           except:
@@ -513,7 +565,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
     except Exception as e:
       if self.getRequestParam(requestParam,'noattach') is None:
         #send some empty data
-        data = StringIO.StringIO("error: %s"%e.message)
+        data = io.StringIO("error: %s"%str(e))
         data.seek(0)
         self.send_response(200)
         self.send_header("Content-type", "application/octet-stream")
@@ -545,7 +597,7 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
       else:
         raise Exception("invalid request %s",type)
     except Exception as e:
-      return json.dumps({'status':unicode(e)},cls=Encoder)
+      return json.dumps({'status':str(e)},cls=Encoder)
 
   def writeFileFromInput(self,outname,rlen,overwrite=False,stream=None):
     if os.path.exists(outname) and not overwrite:
@@ -616,6 +668,11 @@ class AVNHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
       'uploadImport': True,
       'uploadOverlays': True,
       'uploadTracks': True,
-      'canConnect': True
+      'canConnect': True,
+      'config': True,
+      'debugLevel': True,
+      'log': True,
+      'remoteChannel': True,
+      'fetchHead': True
     }
     return json.dumps({'status':'OK','data':rt},cls=Encoder)

@@ -213,8 +213,7 @@ class MainPage extends React.Component {
                     let mode = globalStore.getData(keys.properties.nightMode, false);
                     mode = !mode;
                     globalStore.storeData(keys.properties.nightMode, mode);
-                },
-                editDisable: true
+                }
             },
             Mob.mobDefinition,
             LayoutFinishedDialog.getButtonDef(),
@@ -284,6 +283,17 @@ class MainPage extends React.Component {
                 let lastChartKey=current?current.getChartKey():mapholder.getLastChartKey();
                 let i=0;
                 let selectedChart;
+                json.items.sort((a,b)=>{
+                    let nameA = (a.name).toUpperCase();
+                    let nameB = (b.name).toUpperCase();
+                    if (nameA < nameB) {
+                        return -1;
+                    }
+                    if (nameA > nameB) {
+                        return 1;
+                    }
+                    return 0;
+                })
                 for (let e in json.items) {
                     let chartEntry = json.items[e];
                     if (!chartEntry.key) chartEntry.key=chartEntry.chartKey||chartEntry.url;

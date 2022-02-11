@@ -1,8 +1,7 @@
-# !/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012...2017 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012...2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -26,16 +25,15 @@
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py
 ###############################################################################
 import json
-import traceback
 
 import time
 
 import avnav_handlerList
 from avnav_worker import AVNWorker
-from avnav_config import AVNConfig
+from avnav_manager import AVNHandlerManager
 from avnav_util import *
 
-class LayoutInfo:
+class LayoutInfo(object):
   def __init__(self,name,filename,time,isSystem=False):
     self.filename=filename
     self.time=time
@@ -79,13 +77,8 @@ class AVNLayoutHandler(AVNWorker):
 
   @classmethod
   def autoInstantiate(cls):
-    return """
-      <%s>
-  	  </%s>
-      """ % (cls.getConfigName(), cls.getConfigName())
-
+    return True
   def run(self):
-    self.setName(self.getThreadPrefix())
     AVNLog.info("started")
     userDir=self.getUserDir()
     if not os.path.isdir(userDir):
@@ -94,7 +87,7 @@ class AVNLayoutHandler(AVNWorker):
       self.updateAllLayouts()
       time.sleep(self.getIntParam('period') or 10)
   def getUserDir(self):
-    return AVNConfig.getDirWithDefault(self.param,'userDir','layout')
+    return AVNHandlerManager.getDirWithDefault(self.param, 'userDir', 'layout')
   def updateAllLayouts(self):
     dt = datetime.datetime.now()
     updateCount=dt.microsecond
@@ -160,7 +153,7 @@ class AVNLayoutHandler(AVNWorker):
   def handleApiRequest(self, type, command, requestparam, **kwargs):
     if type == 'list':
       rt=[]
-      for v in self.layouts.values():
+      for v in list(self.layouts.values()):
         rt.append(v.toPlain())
       return {'status':'OK','items':rt}
     if type == 'upload':
@@ -178,7 +171,7 @@ class AVNLayoutHandler(AVNWorker):
           raise Exception("no data in upload layout")
         handler.writeFileFromInput(fname,kwargs.get('flen'),True)
       else:
-        with open(fname,"w") as fp:
+        with open(fname,"w",encoding='utf-8') as fp:
           fp.write(data)
           fp.close()
       self.updateAllLayouts()

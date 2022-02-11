@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # 2011-04-11 10:58:17  
@@ -57,9 +57,9 @@ class BsbKapMap(SrcMap):
     def get_header(self): 
         'read map header'
         header=[]
-        with open(self.file,'rU') as f:
+        with open(self.file,'rb') as f:
             for l in f:
-                if '\x1A' in l:
+                if b'\x1A' in l:
                     break
                 l=l.decode('iso8859-1','ignore')
                 if l.startswith((' ','\t')):

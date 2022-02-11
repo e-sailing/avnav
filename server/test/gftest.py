@@ -1,4 +1,4 @@
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 import xml.etree.ElementTree as ET
 
 BBOX =(54.204223304732,13.408813476562,54.207436119875,13.414306640625)
@@ -14,24 +14,24 @@ def matrix(a,b,c,d,e,f):
 diffy=(BBOX[2]-BBOX[0])/fact
 diffx=(BBOX[3]-BBOX[1])/fact
 diffy=diffx
-pix=256/fact
+pix=256//fact
 step=int(pix/10)
-print "fact:",fact
-print "sz:",pix
+print("fact:",fact)
+print("sz:",pix)
 for loop in range(0,fact):
   for loopy in range(0,fact):
     bbox2=(BBOX[0]+loop*diffx,BBOX[1]+loopy*diffy,BBOX[0]+(loop+1)*diffx,BBOX[1]+(loopy+1)*diffy)
-    print "loop:",loop
-    print "loopy:",loopy
-    print "BBOX:",bbox2
+    print("loop:",loop)
+    print("loopy:",loopy)
+    print("BBOX:",bbox2)
     for x in range(0,pix,step):
-      print "###",x
+      print("###",x)
       for y in range(0,pix,step):
         url=str%(bbox2+(pix,pix,x,y))
-        response = urllib2.urlopen(url)
+        response = urllib.request.urlopen(url)
         html = response.read()
         tree = ET.fromstring(html)
         for child in tree:
-          print x,y,bbox2[0]+float(x)/float(pix)*diffx,bbox2[3]-float(y)/float(pix)*diffy, child.tag, child.attrib
+          print(x,y,bbox2[0]+float(x)/float(pix)*diffx,bbox2[3]-float(y)/float(pix)*diffy, child.tag, child.attrib)
     #    print x,y, tree
 

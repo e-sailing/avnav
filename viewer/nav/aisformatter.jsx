@@ -5,29 +5,41 @@
 import Formatter from '../util/formatter.js';
 
 const aisparam={
+    nameOrmmsi: {
+        headline: 'name/mmsi',
+        format: function (v) {
+            if (v.shipname && v.shipname !== 'unknown') return v.shipname;
+            return v.mmsi;
+        }
+    },
     distance: {
         headline: 'dist(nm)',
-            format: function (v) {
+        format: function (v) {
             return Formatter.formatDistance(v.distance || 0);
-        }
+        },
+        unit: 'nm'
+
     },
     heading: {
         headline: 'hdg',
-            format: function (v) {
+        format: function (v) {
             return Formatter.formatDirection(v.headingTo || 0);
-        }
+        },
+        unit: '°'
     },
     speed: {
         headline: 'speed(kn)',
             format: function (v) {
             return Formatter.formatSpeed(v.speed || 0);
-        }
+        },
+        unit: 'kn'
     },
     course: {
         headline: 'course',
             format: function (v) {
             return Formatter.formatDirection(v.course || 0);
-        }
+        },
+        unit: '°'
     },
     cpa: {
         headline: 'cpa',
@@ -136,6 +148,15 @@ const aisparam={
             format: function (v) {
             return v.nearest || false
         }
+    },
+    clazz: {
+        headline: 'class',
+        format: function(v){
+            if (v.type == 1 || v.type == 2 || v.type == 3) return "A";
+            if (v.type == 18 || v.type == 19) return "B";
+            if (v.type == 4) return "S";
+            return "";
+        }
     }
 
 };
@@ -152,17 +173,28 @@ const AisFormatter={
         if (! d) return ;
         return d.headline;
     },
-    format(key,aisobject){
+    format(key,aisobject,inlcudeUnit){
         let d=aisparam[key];
         if (! d) return ;
         if (aisobject === undefined) return;
-        return d.format(aisobject);
+        let rt=d.format(aisobject);
+        if (inlcudeUnit && d.unit !== undefined){
+            rt+=" "+d.unit;
+        }
+        return rt;
     },
     getItemFromList(list,mmsi){
         if (! list) return;
         for (let i=0;i<list.length;i++){
             if (list[i].mmsi == mmsi) return list[i];
         }
+    },
+    getLabels(){
+        let rt=[];
+        for(let k in aisparam){
+            rt.push({label:aisparam[k].headline,value:k});
+        }
+        return rt;
     }
 };
 

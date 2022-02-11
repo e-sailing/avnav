@@ -1,14 +1,40 @@
+/**
+ *###############################################################################
+ # Copyright (c) 2012-2020 Andreas Vogel andreas@wellenvogel.net
+ #
+ #  Permission is hereby granted, free of charge, to any person obtaining a
+ #  copy of this software and associated documentation files (the "Software"),
+ #  to deal in the Software without restriction, including without limitation
+ #  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ #  and/or sell copies of the Software, and to permit persons to whom the
+ #  Software is furnished to do so, subject to the following conditions:
+ #
+ #  The above copyright notice and this permission notice shall be included
+ #  in all copies or substantial portions of the Software.
+ #
+ #  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ #  OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ #  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ #  THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ #  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ #  DEALINGS IN THE SOFTWARE.
+ #
+ ###############################################################################
+ * edit widget parameters
+ */
+
 import React from 'react';
 import PropTypes from 'prop-types';
-import Promise from 'promise';
 import LayoutHandler from '../util/layouthandler.js';
-import OverlayDialog from './OverlayDialog.jsx';
-import DialogContainer from './OverlayDialogDisplay.jsx';
-import WidgetFactory,{WidgetParameter} from '../components/WidgetFactory.jsx';
+import OverlayDialog,{dialogHelper} from './OverlayDialog.jsx';
+import WidgetFactory from '../components/WidgetFactory.jsx';
 import assign from 'object-assign';
-import {Input,Checkbox,InputReadOnly,InputSelect,ColorSelector} from './Inputs.jsx';
-import ColorDialog from './ColorDialog.jsx';
+import {Input,InputSelect} from './Inputs.jsx';
 import DB from './DialogButton.jsx';
+import {getList,ParamValueInput} from "./ParamValueInput";
+import cloneDeep from 'clone-deep';
+import ShallowCompare from "../util/shallowcompare";
 
 
 class EditWidgetDialog extends React.Component{
@@ -16,68 +42,28 @@ class EditWidgetDialog extends React.Component{
         super(props);
         this.state= {
             panel: props.panel,
-            widget:props.current,
-            sizeCount:0,
-            parameters:WidgetFactory.getEditableWidgetParameters(props.current)};
+            widget:cloneDeep(props.current),
+            parameters:WidgetFactory.getEditableWidgetParameters(props.current.name)};
         this.insert=this.insert.bind(this);
         this.showDialog=this.showDialog.bind(this);
-        this.getList=this.getList.bind(this);
-        this.sizeCount=0;
+        this.updateWidgetState=this.updateWidgetState.bind(this);
+        this.dialogHelper=dialogHelper(this);
     }
     insert(before){
         if (! this.props.insertCallback) return;
         this.props.closeCallback();
         this.props.insertCallback(this.state.widget,before,this.state.panel);
     }
-    getList(list,current){
-        let self=this;
-        let idx=0;
-        let displayList=[];
-        list.forEach((el)=>{
-            let item=undefined;
-            if (typeof(el) === 'object') {
-                item=assign({},el);
-            }
-            else{
-                item={name:el}
-            }
-            item.key=idx;
-            if (! item.label) item.label=item.name;
-            idx++;
-            displayList.push(item);
-        });
-        displayList.sort((a,b)=>{
-            if ( ! a || ! a.name) return -1;
-            if (! b || ! b.name) return 1;
-            let na=a.name.toUpperCase();
-            let nb=b.name.toUpperCase();
-            if (na<nb) return -1;
-            if (na > nb) return 1;
-            return 0;
-        });
-        return displayList;
-    }
     showDialog(Dialog){
-        let self=this;
-        this.setState({
-            dialog: (props)=>{
-                return(
-                    <Dialog
-                        {...props}
-                        closeCallback={()=>self.setState({dialog:undefined})}
-                    />
-                )
-            }
-        });
+        this.dialogHelper.showDialog(Dialog);
     }
     updateWidgetState(values,opt_new){
         let nvalues=undefined;
         if (opt_new){
             nvalues=values;
             let newState={
-                widget: nvalues,
-                sizeCount: this.sizeCount + 1,
-                parameters:WidgetFactory.getEditableWidgetParameters(nvalues)};
+                widget: assign({weight:this.state.widget.weight},nvalues),
+                parameters:WidgetFactory.getEditableWidgetParameters(nvalues.name)};
             newState.parameters.forEach((p)=>{
                 p.setDefault(newState.widget);
             });
@@ -89,29 +75,44 @@ class EditWidgetDialog extends React.Component{
         }
     }
 
-    getWidgetFromState(){
-        let rt=assign({},this.state.widget);
-        if (this.state.parameters){
-            this.state.parameters.forEach((p)=>{
-                p.ensureValue(rt);
-            })
+    changedParameters(){
+        /**
+         * we need to compare
+         * the current values (state.widget) and the default values (from state.parameters)
+         * the rule is to include in the output anything that differs from the defaults
+         * and the name and weight in any case
+         */
+        let defaultValues={};
+        let editableNames={};
+        if (! this.state.parameters) return this.state.widget;
+        this.state.parameters.forEach((p)=>{
+            p.setDefault(defaultValues);
+            if (p.canEdit()) editableNames[p.name]=true;
+        });
+        let rt={};
+        let fixed=['name','weight'];
+        for (let k in this.state.widget){
+            let v=this.state.widget[k];
+            if (fixed.indexOf(k) >= 0){
+                rt[k]=v;
+            }
+            else{
+                if (! (k in editableNames)) continue;
+                if ( ShallowCompare(defaultValues[k],v)) continue;
+                rt[k]=v;
+            }
         }
+        return rt;
     }
-
-
     render () {
         let self=this;
-        let Dialog=this.state.dialog;
         let hasCurrent=this.props.current.name !== undefined;
         let parameters=this.state.parameters;
-        if (this.sizeCount !== this.state.sizeCount && this.props.updateDimensions){
-            this.sizeCount=this.state.sizeCount;
-            window.setTimeout(self.props.updateDimensions,100);
-        }
         let panelClass="panel";
         if (this.props.panel !== this.state.panel){
             panelClass+=" changed";
         }
+        let completeWidgetData=assign({},WidgetFactory.findWidget(this.state.widget.name),this.state.widget);
         return (
             <React.Fragment>
             <div className="selectDialog editWidgetDialog">
@@ -120,7 +121,7 @@ class EditWidgetDialog extends React.Component{
                              dialogRow={true}
                              label="Panel"
                              value={this.state.panel}
-                             list={(current)=>this.getList(this.props.panelList,current)}
+                             list={(current)=>getList(this.props.panelList,current)}
                              onChange={(selected)=>{
                                 this.setState({panel:selected.name})
                                 }}
@@ -141,49 +142,16 @@ class EditWidgetDialog extends React.Component{
                     dialogRow={true}
                     label="New Widget"
                     onChange={(selected)=>{this.updateWidgetState({name:selected.name},true);}}
-                    list={()=>this.getList(WidgetFactory.getAvailableWidgets())}
+                    list={()=>getList(WidgetFactory.getAvailableWidgets())}
                     value={this.state.widget.name||'-Select Widget-'}
                     showDialogFunction={this.showDialog}/>
                 {parameters.map((param)=>{
-                    let ValueInput=undefined;
-                    let current=param.getValue(this.state.widget);
-                    let addClass="";
-                    let inputFunction=(val)=>{
-                        self.updateWidgetState(param.setValue({},val));
-                    };
-                    if (param.type == WidgetParameter.TYPE.DISPLAY){
-                        ValueInput=InputReadOnly;
-                        addClass=" disabled";
-                    }
-                    if (param.type == WidgetParameter.TYPE.STRING ||
-                        param.type == WidgetParameter.TYPE.NUMBER||
-                        param.type == WidgetParameter.TYPE.ARRAY){
-                        ValueInput=Input;
-                    }
-                    if (param.type == WidgetParameter.TYPE.SELECT || param.type == WidgetParameter.TYPE.KEY){
-                        ValueInput=InputSelect;
-                        inputFunction=(val)=>{
-                            self.updateWidgetState(param.setValue({},val.name));
-                        };
-                    }
-                    if (param.type == WidgetParameter.TYPE.BOOLEAN){
-                        ValueInput=Checkbox;
-                    }
-                    if (param.type == WidgetParameter.TYPE.COLOR){
-                        ValueInput=ColorSelector;
-                    }
-                    if (!ValueInput) return;
-                    return <ValueInput
-                            dialogRow={true}
-                            className={"editWidgetParam "+param.name+addClass}
-                            key={param.name.replace(/  */,'')}
-                            label={param.displayName}
-                            onChange={inputFunction}
-                            showDialogFunction={self.showDialog}
-                            showUnset={true}
-                            list={(current)=>this.getList(param.getList(),current)}
-                            value={current}
-                        />
+                    return ParamValueInput({
+                        param:param,
+                        currentValues:completeWidgetData,
+                        showDialogFunction: self.dialogHelper.showDialog,
+                        onChange:self.updateWidgetState
+                    })
                 })}
                 {(this.state.widget.name !== undefined)?
                     <div className="insertButtons">
@@ -202,7 +170,7 @@ class EditWidgetDialog extends React.Component{
                     {this.props.updateCallback?
                         <DB name="ok" onClick={()=>{
                         this.props.closeCallback();
-                        let changes=this.state.widget;
+                        let changes=this.changedParameters();
                         if (this.props.weight){
                             if (changes.weight !== undefined) changes.weight=parseFloat(changes.weight)
                         }
@@ -214,13 +182,6 @@ class EditWidgetDialog extends React.Component{
                     :null}
                 </div>
             </div>
-            {Dialog?
-                <DialogContainer
-                    className="nested"
-                    content={Dialog}
-                    onClick={()=>{this.setState({dialog:undefined})}}
-                />:
-                null}
             </React.Fragment>
         );
     }
@@ -263,7 +224,6 @@ EditWidgetDialog.createDialog=(widgetItem,pagename,panelname,opt_beginning,opt_w
     OverlayDialog.dialog((props)=> {
         return <EditWidgetDialog
             {...props}
-            weight={opt_weight||false}
             title="Select Widget"
             panel={panelname}
             panelList={LayoutHandler.getPagePanels(pagename)}

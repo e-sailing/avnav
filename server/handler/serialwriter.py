@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -25,9 +24,14 @@
 #  parts from this software (AIS decoding) are taken from the gpsd project
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
+import traceback
+
+import time
 
 from avnserial import *
 import avnav_handlerList
+from avnav_nmea import NMEAParser
+from avnav_util import AVNLog
 from avnav_worker import AVNWorker
 
 hasSerial=False
@@ -50,14 +54,17 @@ class SerialWriter(SerialReader):
 
   @classmethod
   def getConfigParam(cls):
-      rt=SerialReader.getConfigParam().copy();
-      rt.update({
-          'feederName':'',  #if set, use this feeder (if combined use it both for reader and writer)
-          'combined' : False, #if true, also start a reader
-          'readFilter':'',   #filterstring for reading
-          'blackList':''     #, separated list of sources that we will not send out
-          })
-      return rt
+      rt=list(filter(lambda x: x.name != 'minbaud' ,SerialReader.getConfigParam()))
+      ownParam=[
+          WorkerParameter('feederName','', type=WorkerParameter.T_STRING,editable=False),
+          WorkerParameter('combined', False, type=WorkerParameter.T_BOOLEAN,
+                          description='if true, also start a reader'),
+          WorkerParameter('readFilter','', type=WorkerParameter.T_FILTER,
+                          condition={'combined':True}),
+          WorkerParameter('blackList','',type=WorkerParameter.T_STRING,
+                          description=', separated list of sources that we will not send out')
+          ]
+      return rt+ownParam
     
   #parameters:
   #param - the config dict
@@ -86,13 +93,18 @@ class SerialWriter(SerialReader):
     if param.get('blacklist') is not None:
       self.blackList =param.get('blacklist').split(',')
     self.blackList.append(sourceName)
+    self.combinedStatus={}
 
    
   def stopHandler(self):
     self.doStop=True
+    try:
+      self.device.close()
+    except:
+      pass
 
   
-  def openDevice(self,baud,init=False):
+  def openDevice(self,baud,autobaud,init=False):
     self.buffer=''
     f=None
     try:
@@ -102,11 +114,13 @@ class SerialWriter(SerialReader):
     bytesize=int(self.param['bytesize'])
     parity=self.param['parity']
     stopbits=int(self.param['stopbits'])
-    xonxoff=int(self.param['xonxoff'])
-    rtscts=int(self.param['rtscts'])
+    xonxoff=self.P_XONOFF.fromDict(self.param)
+    rtscts=self.P_RTSCTS.fromDict(self.param)
     portname=self.param['port']
     timeout=float(self.param['timeout'])
     name=self.getName()
+    isCombined = self.param.get('combined') or False
+    modeStr='writer' if not isCombined else 'combined'
     if init:
       AVNLog.info("openDevice for port %s, baudrate=%d, timeout=%f",
                   portname,baud,timeout)
@@ -115,14 +129,14 @@ class SerialWriter(SerialReader):
       AVNLog.debug("openDevice for port %s, baudrate=%d, timeout=%f",portname,baud,timeout)
     lastTime=time.time()
     try:
-      self.setInfoWithKey("writer","opening %s at %d baud"%(portname,baud),AVNWorker.Status.STARTED)
+      self.setInfoWithKey("writer","%s opening %s at %d baud"%(modeStr,portname,baud),WorkerStatus.STARTED)
       f=serial.Serial(pnum, timeout=timeout, baudrate=baud, bytesize=bytesize, parity=parity, stopbits=stopbits, xonxoff=xonxoff, rtscts=rtscts)
-      self.setInfoWithKey("writer","port open",AVNWorker.Status.STARTED)
+      self.setInfoWithKey("writer","%s port %s open at %d baud"%(modeStr,portname,baud),WorkerStatus.STARTED)
       return f
     except Exception:
-      self.setInfoWithKey("writer","unable to open port",AVNWorker.Status.ERROR)
+      self.setInfoWithKey("writer","%s unable to open port %s"%(modeStr,portname),WorkerStatus.ERROR)
       try:
-        tf=traceback.format_exc(3).decode('ascii','ignore')
+        tf=traceback.format_exc(3)
       except:
         tf="unable to decode exception"
       AVNLog.debug("Exception on opening %s : %s",portname,tf)
@@ -138,22 +152,22 @@ class SerialWriter(SerialReader):
 
     return serialDevice.write(data.encode('ascii','ignore'))
 
-   
+
   #the run method - just try forever  
   def run(self):
-    threading.current_thread().setName("[%s]%s - %s"%(AVNLog.getThreadId(),self.getName(),self.param['port']))
+    threading.current_thread().setName("%s - %s"%(self.getName(),self.param['port']))
     self.device=None
     init=True
     isOpen=False
-    AVNLog.debug("started with param %s",",".join(unicode(i)+"="+unicode(self.param[i]) for i in self.param.keys()))
-    self.setInfoWithKey("writer","created",AVNWorker.Status.STARTED)
+    AVNLog.debug("started with param %s",",".join(str(i)+"="+str(self.param[i]) for i in list(self.param.keys())))
+    self.setInfoWithKey("writer","created",WorkerStatus.STARTED)
     startReader=self.param.get('combined')
-    if startReader is not None and unicode(startReader).upper()=='TRUE':
+    if startReader is not None and str(startReader).upper()=='TRUE':
       AVNLog.debug("starting reader")
       reader=threading.Thread(target=self.readMethod)
       reader.setDaemon(True)
       reader.start()
-    while True and not self.doStop:
+    while not self.doStop:
       name=self.getName()
       timeout=float(self.param['timeout'])
       portname=self.param['port']
@@ -164,11 +178,11 @@ class SerialWriter(SerialReader):
       filter=None
       if filterstr != "":
         filter=filterstr.split(',')
-      self.device=self.openDevice(baud,init)
+      self.device=self.openDevice(baud,False,init=init)
       init=False
       if self.doStop:
         AVNLog.info("handler stopped, leaving")
-        self.setInfoWithKey("writer","stopped",AVNWorker.Status.INACTIVE)
+        self.setInfoWithKey("writer","stopped",WorkerStatus.INACTIVE)
         try:
           self.device.close()
           self.device=None
@@ -204,13 +218,13 @@ class SerialWriter(SerialReader):
           break
 
     AVNLog.info("stopping handler")
-    self.setInfoWithKey("writer","stopped",AVNWorker.Status.INACTIVE)
+    self.setInfoWithKey("writer","stopped",WorkerStatus.INACTIVE)
     self.deleteInfo()
 
   #the read method for the combined reader/writer
   def readMethod(self):
-    threading.current_thread().setName("[%s]%s-combinedReader"%(AVNLog.getThreadId(),self.getName()))
-    self.setInfoWithKey("reader","started",AVNWorker.Status.STARTED)
+    threading.current_thread().setName("%s-combinedReader"%self.getName())
+    self.setInfoWithKey("reader","started",WorkerStatus.STARTED)
     AVNLog.info("started")
     filterstr=self.param.get('readFilter')
     filter=None
@@ -218,12 +232,12 @@ class SerialWriter(SerialReader):
       filter=filterstr.split(',')
     hasNmea=False
     source=self.sourceName
-    while True and not self.doStop:
+    while not self.doStop:
       try:
         if self.device is not None:
           bytes=self.device.readline(300)
           if self.doStop:
-            AVNLog.info("Stopping reader of combined reader/writer %s",unicode(self.param['port']))
+            AVNLog.info("Stopping reader of combined reader/writer %s",str(self.param['port']))
             self.deleteInfoWithKey("reader")
             return
           if bytes is None or len(bytes)==0:
@@ -239,7 +253,7 @@ class SerialWriter(SerialReader):
               AVNLog.debug("ignore line %s due to not matching filter",data)
               continue
             if not hasNmea:
-              self.setInfoWithKey("reader","receiving data",AVNWorker.Status.NMEA)
+              self.setInfoWithKey("reader","receiving data",WorkerStatus.NMEA)
             if not self.writeData is None:
               self.writeData(data,source)
             else:
@@ -247,24 +261,40 @@ class SerialWriter(SerialReader):
         else:
           time.sleep(0.5)
       except:
-        AVNLog.debug("exception on read in mixed reader/writer %s (port %s)",traceback.format_exc(),unicode(self.param['port']))
+        AVNLog.debug("exception on read in mixed reader/writer %s (port %s)",traceback.format_exc(),str(self.param['port']))
         time.sleep(0.5)
         hasNmea=False
 
     
         
-  def setInfo(self,txt,status):
+  def _updateStatus(self):
+    finalStatus = WorkerStatus.INACTIVE
+    finalText = ''
+    hasItems=False
+    for k, v in self.combinedStatus.items():
+      hasItems=True
+      if v.status == WorkerStatus.ERROR:
+        finalStatus = WorkerStatus.ERROR
+      elif v.status == WorkerStatus.NMEA and finalStatus != WorkerStatus.ERROR:
+        finalStatus = WorkerStatus.NMEA
+      elif finalStatus == WorkerStatus.INACTIVE and v.status != WorkerStatus.INACTIVE:
+        finalStatus = v.status
+      finalText += "%s:[%s] %s " % (v.name, v.status, v.info)
     if not self.infoHandler is None:
-      self.infoHandler.setInfo(self.getName(),txt,status)
-  def deleteInfo(self):
-    if not self.infoHandler is None:
-      self.infoHandler.deleteInfo(self.getName())
+      if hasItems:
+        self.infoHandler.setInfo('main', finalText, finalStatus)
+      else:
+        self.infoHandler.deleteInfo('main')
+
   def setInfoWithKey(self,key,txt,status):
-    if not self.infoHandler is None:
-      self.infoHandler.setInfo(self.getName()+"-"+key,txt,status)
+    self.combinedStatus[key]=WorkerStatus(key,status,txt)
+    self._updateStatus()
   def deleteInfoWithKey(self,key):
-    if not self.infoHandler is None:
-      self.infoHandler.deleteInfo(self.getName()+"-"+key)
+    try:
+      del self.combinedStatus[key]
+    except:
+      pass
+    self._updateStatus()
 
 #a Worker to directly write to a serial line using pyserial
 #on windows use an int for the port - e.g. use 4 for COM5
@@ -278,7 +308,7 @@ class AVNSerialWriter(AVNWorker):
     return "AVNSerialWriter"
   
   @classmethod
-  def getConfigParam(cls,child):
+  def getConfigParam(cls, child=None):
     if not child is None:
       return None
     cfg=SerialWriter.getConfigParam()
@@ -291,18 +321,63 @@ class AVNSerialWriter(AVNWorker):
       return None
     rt=AVNSerialWriter(cfgparam)
     return rt
-    
+
+  @classmethod
+  def canEdit(cls):
+    return True
+
+  @classmethod
+  def canDeleteHandler(cls):
+    return True
+
+  @classmethod
+  def getEditableParameters(cls, makeCopy=True,id=None):
+    rt= super().getEditableParameters(True,id=id)
+    slist = SerialReader.listSerialPorts()
+    slist = UsedResource.filterListByUsed(UsedResource.T_SERIAL, slist,
+                                          cls.findUsersOf(UsedResource.T_SERIAL, ownId=id))
+    WorkerParameter.updateParamFor(rt, 'port', {'rangeOrList':slist})
+    return rt
+
   def __init__(self,param):
     for p in ('port','timeout'):
       if param.get(p) is None:
         raise Exception("missing "+p+" parameter for serial writer")
     AVNWorker.__init__(self, param)
+    self.writer=None
 
-     
+  def checkConfig(self, param):
+    if 'port' in param:
+      self.checkUsedResource(UsedResource.T_SERIAL,param.get('port'))
+
+  def stop(self):
+    try:
+      self.writer.stopHandler()
+    except:
+      pass
+    super().stop()
+
   #thread run method - just try forever  
   def run(self):
-    self.setName(self.getThreadPrefix())
-    writer=SerialWriter(self.param,self.writeData,self,self.getSourceName(self.getParamValue('port')))
-    writer.run()
+    while not self.shouldStop():
+      self.setNameIfEmpty("%s-%s"%(self.getName(),str(self.getParamValue('port'))))
+      self.freeAllUsedResources()
+      self.claimUsedResource(UsedResource.T_SERIAL,self.getParamValue('port'))
+      try:
+        self.writer=SerialWriter(self.param,self.writeData,self,self.getSourceName(self.getParamValue('port')))
+        self.writer.run()
+      except Exception as e:
+        AVNLog.error("exception in serial writer: %s",traceback.format_exc())
+        self.wait(2000)
+      AVNLog.info("restarting serial writer")
+
+  def updateConfig(self, param, child=None):
+    if 'port' in param:
+      self.checkUsedResource(UsedResource.T_SERIAL,param['port'])
+    super().updateConfig(param, child)
+    if self.writer is not None:
+      self.writer.stopHandler()
+
+
 avnav_handlerList.registerHandler(AVNSerialWriter)
 

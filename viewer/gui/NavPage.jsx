@@ -14,7 +14,6 @@ import Helper from '../util/helper.js';
 import GuiHelpers from '../util/GuiHelpers.js';
 import MapHolder from '../map/mapholder.js';
 import navobjects from '../nav/navobjects.js';
-import AisData from '../nav/aisdata.js';
 import ButtonList from '../components/ButtonList.jsx';
 import WayPointDialog from '../components/WaypointDialog.jsx';
 import RouteEdit,{StateHelper} from '../nav/routeeditor.js';
@@ -28,6 +27,7 @@ import Dimmer from '../util/dimhandler.js';
 import FeatureInfoDialog from "../components/FeatureInfoDialog";
 import {TrackConvertDialog} from "../components/TrackInfoDialog";
 import FullScreen from '../components/Fullscreen';
+import DialogButton from "../components/DialogButton";
 
 const RouteHandler=NavHandler.getRoutingHandler();
 
@@ -39,7 +39,7 @@ const PAGENAME='navpage';
 
 
 const getPanelList=(panel)=>{
-    return LayoutHandler.getPanelData(PAGENAME,panel,LayoutHandler.getOptionValues([LayoutHandler.OPTIONS.SMALL]));
+    return LayoutHandler.getPanelData(PAGENAME,panel,LayoutHandler.getOptionValues([LayoutHandler.OPTIONS.SMALL,LayoutHandler.OPTIONS.ANCHOR]));
 };
 /**
  *
@@ -72,9 +72,57 @@ const startWaypointDialog=(item,idx)=>{
     OverlayDialog.dialog(RenderDialog);
 };
 
+const setBoatOffset=()=>{
+    if (! globalStore.getData(keys.nav.gps.valid)) return;
+    let pos=globalStore.getData(keys.nav.gps.position);
+    if (! pos) return;
+    let ok=MapHolder.setBoatOffset(pos);
+    return ok;
+}
+const showLockDialog=()=>{
+    const LockDialog=(props)=>{
+        return <div className={'LockDialog inner'}>
+            <h3 className="dialogTitle">{'Lock Boat'}</h3>
+            <div className={'dialogButtons'}>
+                <DialogButton
+                    name={'current'}
+                    onClick={()=>{
+                        props.closeCallback();
+                        if (!setBoatOffset()) return;
+                        MapHolder.setGpsLock(true);
+                    }}
+                >
+                    Current</DialogButton>
+                <DialogButton
+                    name={'center'}
+                    onClick={()=>{
+                        props.closeCallback();
+                        MapHolder.setBoatOffset();
+                        MapHolder.setGpsLock(true);
+                    }}
+                >
+                    Center
+                </DialogButton>
+                <DialogButton
+                    name={'cancel'}
+                    onClick={()=>props.closeCallback()}
+                >
+                    Cancel
+                </DialogButton>
+            </div>
+        </div>
+    }
+    OverlayDialog.dialog(LockDialog);
+}
+
 const setCenterToTarget=()=>{
     MapHolder.setGpsLock(false);
-    MapHolder.setCenter(activeRoute.hasRoute()?activeRoute.getPointAt():activeRoute.getCurrentTarget());
+    if (globalStore.getData(keys.nav.anchor.watchDistance) !== undefined){
+        MapHolder.setCenter(activeRoute.getCurrentFrom());
+    }
+    else {
+        MapHolder.setCenter(activeRoute.hasRoute() ? activeRoute.getPointAt() : activeRoute.getCurrentTarget());
+    }
 };
 
 const navNext=()=>{
@@ -115,6 +163,7 @@ class NavPage extends React.Component{
         };
         this.showWpButtons=this.showWpButtons.bind(this);
         this.widgetClick=this.widgetClick.bind(this);
+        globalStore.storeData(keys.map.measurePosition,undefined);
         this.waypointButtons=[
             anchorWatch(),
             {
@@ -135,26 +184,35 @@ class NavPage extends React.Component{
                         startWaypointDialog(activeRoute.getCurrentTarget());
                     }
                     this.showWpButtons(false);
-                }
+                },
+                storeKeys: {watchDistance:keys.nav.anchor.watchDistance},
+                updateFunction:(state)=>{
+                    return {visible:! (state.watchDistance !== undefined)}
+                },
+
             },
             {
                 name:'WpGoto',
-                storeKeys:activeRoute.getStoreKeys(),
+                storeKeys:activeRoute.getStoreKeys({watchDistance:keys.nav.anchor.watchDistance}),
                 updateFunction: (state)=> {
-                    return {visible: !StateHelper.selectedIsActiveTarget(state)}
+                    return {visible: !StateHelper.selectedIsActiveTarget(state) && ! (state.watchDistance !== undefined)}
                 },
                 onClick:()=>{
                     let selected=activeRoute.getPointAt();
                     this.showWpButtons(false);
                     if (selected) RouteHandler.wpOn(selected);
-                }
+                },
+
 
             },
             {
                 name:'NavNext',
-                storeKeys:activeRoute.getStoreKeys(),
+                storeKeys:activeRoute.getStoreKeys({watchDistance:keys.nav.anchor.watchDistance}),
                 updateFunction: (state)=> {
-                    return {visible:  StateHelper.selectedIsActiveTarget(state) &&  StateHelper.hasPointAtOffset(state,1)};
+                    return {visible:  StateHelper.selectedIsActiveTarget(state)
+                            &&  StateHelper.hasPointAtOffset(state,1)
+                            && ! (state.watchDistance !== undefined)
+                    };
                 },
                 onClick:()=>{
                     self.showWpButtons(false);
@@ -165,11 +223,11 @@ class NavPage extends React.Component{
             },
             {
                 name:'WpNext',
-                storeKeys:activeRoute.getStoreKeys(),
+                storeKeys:activeRoute.getStoreKeys({watchDistance:keys.nav.anchor.watchDistance}),
                 updateFunction: (state)=> {
                     return {
                         disabled:!StateHelper.hasPointAtOffset(state,1),
-                        visible: StateHelper.hasRoute(state)
+                        visible: StateHelper.hasRoute(state) && ! (state.watchDistance !== undefined)
                     };
                 },
                 onClick:()=>{
@@ -182,11 +240,11 @@ class NavPage extends React.Component{
             },
             {
                 name:'WpPrevious',
-                storeKeys:activeRoute.getStoreKeys(),
+                storeKeys:activeRoute.getStoreKeys({watchDistance:keys.nav.anchor.watchDistance}),
                 updateFunction: (state)=> {
                     return {
                         disabled:!StateHelper.hasPointAtOffset(state,-1),
-                        visible: StateHelper.hasRoute(state)
+                        visible: StateHelper.hasRoute(state) && ! (state.watchDistance !== undefined)
                     }
                 },
                 onClick:()=>{
@@ -212,6 +270,9 @@ class NavPage extends React.Component{
                 navToWp(!activeRoute.hasActiveTarget())
             }
         },"page",["centerToTarget","navNext","toggleNav"])
+        if (globalStore.getData(keys.properties.mapLockMode) === 'center'){
+            MapHolder.setBoatOffset();
+        }
     }
     widgetClick(item,data,panel,invertEditDirection){
         if (EditWidgetDialog.createDialog(item,PAGENAME,panel,invertEditDirection)) return;
@@ -232,7 +293,7 @@ class NavPage extends React.Component{
             MapHolder.checkAutoZoom(true);
             return;
         }
-        if (panel == 'bottomLeft'){
+        if (panel && panel.match(/^bottomLeft/)){
             activeRoute.setIndexToTarget();
             this.showWpButtons(true);
             return;
@@ -255,7 +316,6 @@ class NavPage extends React.Component{
             let aisparam=evdata.aisparam;
             if (!aisparam) return;
             if (aisparam.mmsi){
-                AisData.setTrackedTarget(aisparam.mmsi);
                 history.push('aisinfopage',{mmsi:aisparam.mmsi});
                 return true;
             }
@@ -338,6 +398,7 @@ class NavPage extends React.Component{
         }
     }
     componentWillUnmount(){
+        globalStore.storeData(keys.map.measurePosition,undefined);
     }
     componentDidMount(){
         MapHolder.showEditingRoute(false);
@@ -363,6 +424,19 @@ class NavPage extends React.Component{
                 },
                 onClick:()=>{
                     let old=globalStore.getData(keys.map.lockPosition);
+                    if (! old){
+                        let lockMode=globalStore.getData(keys.properties.mapLockMode,'center');
+                        if ( lockMode === 'ask'){
+                            showLockDialog();
+                            return;
+                        }
+                        if (lockMode === 'current'){
+                            if (! setBoatOffset()) return;
+                        }
+                        else{
+                            MapHolder.setBoatOffset();
+                        }
+                    }
                     MapHolder.setGpsLock(!old);
                 },
                 editDisable:true
@@ -418,10 +492,52 @@ class NavPage extends React.Component{
                     visible:keys.gui.capabilities.uploadOverlays
                 }
             },
+            {
+                name:'GpsCenter',
+                onClick:()=>{
+                    MapHolder.centerToGps();
+
+                },
+                overflow: true,
+                editDisable: true
+            },
+            {
+                name: 'Night',
+                storeKeys: {
+                    toggle: keys.properties.nightMode,
+                    visible: keys.properties.nightModeNavPage
+                },
+                onClick: ()=> {
+                    let mode = globalStore.getData(keys.properties.nightMode, false);
+                    mode = !mode;
+                    globalStore.storeData(keys.properties.nightMode, mode);
+                },
+                overflow: true
+            },
+            {
+                name: 'Measure',
+                storeKeys: {
+                    toggle: keys.map.measurePosition,
+                    visible: keys.properties.showMeasure
+                },
+                overflow: true,
+                onClick: ()=>{
+                    let current=globalStore.getData(keys.map.measurePosition);
+                    if (current){
+                        globalStore.storeData(keys.map.measurePosition,undefined);
+                        MapHolder.triggerRender();
+                        return;
+                    }
+                    if (MapHolder.getGpsLock()) return;
+                    let center = globalStore.getData(keys.map.centerPosition);
+                    globalStore.storeData(keys.map.measurePosition,center);
+                    MapHolder.triggerRender();
+                }
+            },
             Mob.mobDefinition,
             EditPageDialog.getButtonDef(PAGENAME,
                 MapPage.PANELS,
-                [LayoutHandler.OPTIONS.SMALL]),
+                [LayoutHandler.OPTIONS.SMALL,LayoutHandler.OPTIONS.ANCHOR]),
             LayoutFinishedDialog.getButtonDef(),
             FullScreen.fullScreenDefinition,
             Dimmer.buttonDef(),
@@ -434,6 +550,10 @@ class NavPage extends React.Component{
     }
     render(){
         let self=this;
+        let autohide=undefined;
+        if (globalStore.getData(keys.properties.autoHideNavPage)){
+            autohide=globalStore.getData(keys.properties.hideButtonTime,30)*1000;
+        }
         return (
             <MapPage
                 className={self.props.className}
@@ -447,6 +567,8 @@ class NavPage extends React.Component{
                             className="overlayContainer"
                         />:null}
                 buttonList={self.getButtons()}
+                preventCenterDialog={(self.props.options||{}).remote}
+                autoHideButtons={autohide}
                 />
         );
     }

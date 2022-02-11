@@ -1,4 +1,30 @@
-#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+# vim: ts=2 sw=2 et ai
+###############################################################################
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
+#
+#  Permission is hereby granted, free of charge, to any person obtaining a
+#  copy of this software and associated documentation files (the "Software"),
+#  to deal in the Software without restriction, including without limitation
+#  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#  and/or sell copies of the Software, and to permit persons to whom the
+#  Software is furnished to do so, subject to the following conditions:
+#
+#  The above copyright notice and this permission notice shall be included
+#  in all copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+#  OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+#  THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#  DEALINGS IN THE SOFTWARE.
+#
+#  parts from this software (AIS decoding) are taken from the gpsd project
+#  so refer to this BSD licencse also (see ais.py) or omit ais.py
+###############################################################################
+
 import sys
 import os
 import socket
@@ -7,7 +33,7 @@ import re
 import threading
 import datetime
 
-class CacheEntry():
+class CacheEntry(object):
   #age in seconds
   age=2000
   def __init__(self,key,data):
@@ -29,7 +55,7 @@ class CacheEntry():
     self.data=data
     self.pending=self.time
 
-class WpaControl():
+class WpaControl(object):
   maxReceive=4096
   def __init__(self,wpaAddr,ownAddr):
     self.wpaAddr=wpaAddr
@@ -65,6 +91,7 @@ class WpaControl():
       if self.socket is None:
         return
     try:
+      self.socket.shutdown(socket.SHUT_RDWR)
       self.socket.close()
     except:
       pass
@@ -78,13 +105,13 @@ class WpaControl():
     ready = select.select([self.socket], [], [], 2)
     if ready[0]:
       data = self.socket.recv(self.maxReceive)
-      return data
+      return data.decode('utf-8')
     self.close(False)
     raise Exception("no response from %s in 2s"%(self.wpaAddr))
   def sendRequest(self,request):
     self.checkOpen()
     try:
-      self.socket.send(request)
+      self.socket.send(request.encode('utf-8'))
     except:
       self.close(False)
       raise
@@ -211,7 +238,7 @@ class WpaControl():
   '''
   unquotedParam=['key_mgmt']
   def configureNetwork(self,id,param):
-    for k in param.keys():
+    for k in list(param.keys()):
       if param[k] is not None:
         if not k in self.unquotedParam:
           self.runSimpleScommand("SET_NETWORK %s %s \"%s\""%(id,k,param[k]),False)
@@ -321,7 +348,7 @@ def isInt(st):
     return False
 
 if __name__=="__main__":
-  print "starting... - wpa=%s,own=%s"%(sys.argv[1],sys.argv[2])
+  print("starting... - wpa=%s,own=%s"%(sys.argv[1],sys.argv[2]))
   w=WpaControl(sys.argv[1],sys.argv[2])
   w.open()
   mode=sys.argv[3]
@@ -333,28 +360,28 @@ if __name__=="__main__":
       w.startScan()
     if rq == "scan_results":
       ok=True
-      print w.scanResults()
+      print(w.scanResults())
     if rq=="scan_info":
       ok=True
-      print w.scanResultWithInfo()
+      print(w.scanResultWithInfo())
     if rq == "status":
       ok=True
-      print w.status()
+      print(w.status())
     if rq == "save":
       ok=True
       w.saveConfig()
     if rq == "list_networks":
       ok=True
-      print w.listNetworks()
+      print(w.listNetworks())
     if rq == "add_network":
       ok=True
-      print w.addNetwork()
+      print(w.addNetwork())
     if rq== "configure_network":
       ok=True
       p={}
       for i in range(6,len(sys.argv)):
         (n,v)=sys.argv[i].split("=")
-        print "param "+n+"="+v
+        print("param "+n+"="+v)
         p[n]=v
       w.configureNetwork(sys.argv[5],p)
     if rq =="remove_network":
@@ -380,15 +407,15 @@ if __name__=="__main__":
       p={}
       for i in range(5,len(sys.argv)):
         (n,v)=sys.argv[i].split("=")
-        print "param "+n+"="+v
+        print("param "+n+"="+v)
         p[n]=v
-      print w.connect(p)
+      print(w.connect(p))
     if ok:
-      print "simple command %s ok"%(rq)
+      print("simple command %s ok"%(rq))
     else:
       raise Exception("unknown command "+rq)
   else:
     w.sendRequest(rq)
     rt=w.receiveData()
-    print "received for %s:%s"%(sys.argv[3],rt)
+    print("received for %s:%s"%(sys.argv[3],rt))
 

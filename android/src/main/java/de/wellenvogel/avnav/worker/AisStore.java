@@ -4,6 +4,7 @@ import android.location.Location;
 import android.util.Log;
 import de.wellenvogel.avnav.aislib.messages.message.*;
 import de.wellenvogel.avnav.util.AvnLog;
+import de.wellenvogel.avnav.util.AvnUtil;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -183,7 +184,7 @@ public class AisStore {
         Location myLoc=new Location((String)null);
         myLoc.setLongitude(lon);
         myLoc.setLatitude(lat);
-        distance=distance*1852; //in distance is in NM
+        distance=distance* AvnUtil.NM; //in distance is in NM
         AvnLog.d(LOGPRFX,"getAisData dist="+distance);
         for(JSONObject o:aisData.values()){
             if (! o.has("lat") || ! o.has("lon")) continue;
@@ -211,7 +212,7 @@ public class AisStore {
     }
 
     public synchronized void cleanup(long lifetime){
-        long cleanupTime=System.currentTimeMillis()-lifetime;
+        long cleanupTime=System.currentTimeMillis()-lifetime*1000;
         Iterator<Map.Entry<Integer,JSONObject>> it=aisData.entrySet().iterator();
         while (it.hasNext()){
             Map.Entry<Integer,JSONObject>et=it.next();

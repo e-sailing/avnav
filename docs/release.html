@@ -11,14 +11,16 @@
     <a href="install.html">Die Installationsanleitung<span style="color: black;"></span></a>
     enthält eine detaillierte Beschreibung der Installationsoptionen. Auf dieser
     Seite finden sich Informationen zu den einzelnen Release-Versionen.<br>
-    Nicht mit jedem update werden neue Images bereitgestellt. Zwischen-Updates
+    Nicht mit jedem Update werden neue Images bereitgestellt. Zwischen-Updates
     sind entweder <a href="../downloads/daily/">Entwickler-Versionen</a> oder <a
       href="../downloads/release/">Releases</a>.<br>
     Um ein solches Update zu installieren, benötigt man eine Kommandozeile auf
-    dem pi. Von Windows aus geht das z.B. mit <a href="https://www.putty.org/">putty
+    dem pi (oder das <a href="https://github.com/wellenvogel/avnav-update-plugin">AvNav
+      Update Plugin</a>). Von Windows aus geht das z.B. mit <a href="https://www.putty.org/">putty
       </a>. Dazu die IP Adresse vom pi ermitteln und dann mit putty dorthin
-    verbinden. Nutzername: pi, Passwort: raspberry.<br>
-    Wie man die Pakete installiert ist ebenfalls in der <a href="install.html#Packages">Installationsanleitung</a>
+    verbinden. Nutzername: pi, Passwort: raspberry (bzw. so, wie man das für das
+    Image angepasst hat).<br>
+    Wie man die Pakete installiert, ist ebenfalls in der <a href="install.html#Packages">Installationsanleitung</a>
     beschrieben.<br>
     Anschliessend muss man (Hinweise auf dieser Seite beachten) eventuell noch
     die Konfigurationsdatei<br>
@@ -29,13 +31,292 @@
 nano /home/pi/avnav/data/avnav_server.xml # dann ändern und speichern
 sudo systemctl start avnav</div>
     <br>
-    Auf dieser Seite sind nur Hinweise zu den <a href="../downloads/release/">release-Versionen</a>
-    enthalten, für <a href="../downloads/daily/">tägliche Builds</a> kann man
-    die <a href="https://github.com/wellenvogel/avnav/commits/master">commits
-      auf GitHub</a> prüfen.<br>
+    <p>Wenn man das <a href="https://github.com/wellenvogel/avnav-update-plugin">AvNav
+        Update Plugin</a> installiert hat, kann man die Konfiguration auch von
+      dort bearbeiten ohne die Kommandozeile nutzen zu müssen.<br>
+    </p>
+    <p>Auf dieser Seite sind nur Hinweise zu den <a href="../downloads/release/">release-Versionen</a>
+      enthalten, für <a href="../downloads/daily/">tägliche Builds</a> kann man
+      die <a href="https://github.com/wellenvogel/avnav/commits/master">commits
+        auf GitHub</a> prüfen.</p>
     <br>
     <div> </div>
     <h2>Versionen</h2>
+    <p> <span style="font-weight: bold;">20210619</span> <a title="release/20210619"
+        href="../downloads/release/20210619">link</a>(Android Version: 20210618)
+    </p>
+    <p>Neue Funktionen</p>
+    <ul>
+      <li>&nbsp;zeige den Nachtmodus Button auch im Layout Editor</li>
+      <li><a href="https://github.com/wellenvogel/avnav/issues/88">#88</a>:
+        dekodiere HDG,HDT,HDM,VHW (teilweise) auf dem Server und unter&nbsp;
+        Android</li>
+      <li>HDT,HDM widgets</li>
+      <li>ermögliche die Nutzung von HDT oder HDM für die Richtungsanzeige des
+        Boot-Symbols (<a href="userdoc/settingspage.html">Einstellungen</a>/navigation/boat
+        direction )</li>
+      <li><a href="https://github.com/wellenvogel/avnav/issues/138">#138</a>
+        ermögliche das Boot auf jeder beliebigen Position auf dem Bildschirm zu
+        fixieren(<a href="userdoc/settingspage.html">Einstellungen</a>/map/lock
+        boat mode)</li>
+      <li><a href="https://github.com/wellenvogel/avnav/issues/139">#139</a>
+        zeige den Nachtmodus Button auch auf der Navigationsseite</li>
+      <li>Erlaube einen "schwebenden" Mode der Buttons und Anzeigen über der
+        Karte (<a href="userdoc/settingspage.html">Einstellungen</a>/map/float
+        map behind buttons)</li>
+      <li>Verberge die Buttons auf der Navigationsseite und auf den Dashboard
+        Seiten nach einer einstellbaren Zeit (<a href="userdoc/settingspage.html">Einstellungen</a>/buttons/auto
+        hide buttons...)</li>
+      <li><a href="https://github.com/wellenvogel/avnav/issues/132">#132</a>
+        zeige +/- 180 im Wind Widget (einstellbar im Layout Editor), kleinere
+        Verbesserungen am Wind Graphics Widget</li>
+      <li>setze den Layout-Namen als CSS Klasse an der Applikation um <a href="hints/usercss.html">CSS
+          Stile</a> für verschiedene Layouts zu ermöglichen</li>
+      <li><a href="hints/RemoteControl.html">Fernsteuerung</a></li>
+      <ul>
+        <li>Steuere ein Display von einem anderen oder vom Server</li>
+        <li>5 Kanäle, jedes Display kann auf einem davon senden oder/und
+          empfangen</li>
+        <li>UDP Port für den Empfang von Fernsteuerkommandos</li>
+        <li><a href="https://github.com/wellenvogel/avnav-obp-rc-remote-plugin">Plugin</a>
+          für die Zusammenarbeit mit der obp-rc-remote Fernbedienung</li>
+      </ul>
+      <li>Interface Wichtungen für eine einfache Umschaltung zwischen ethernet
+        und WLAN für den Internet-Zugang (avnav-raspi)</li>
+    </ul>
+    &nbsp; Fehlerkorrekturen:
+    <ul>
+      <li>Einfrieren bei der Nutzung von Linear Gauges</li>
+      <li>Falsche Button-Sortierung auf alten Browsern</li>
+      <li><a href="https://github.com/wellenvogel/avnav/issues/140">#140</a>:
+        Nachtmodus für XTE Widget, Wind Graphics, einige Gauges</li>
+      <li>Umschaltung zwischen Access Point und WLAN client über die Config GUI
+        funktionierte nicht</li>
+      <li>Wenn gleichzeitig apparent und true Wind vorhanden sind, springt die
+        Anzeige zwischen beiden. Jetzt wird "apparent" bevorzugt und nur wenn
+        das nicht empfangen wird, wird "true" genutzt. Es erfolgt eine Anzeige
+        welcher Wert genutzt wird.</li>
+      <li>Korrektur das Filter Handlings für Komma separierte Filter am Plugin
+        API</li>
+      <li>Korrektur des read filter Handling am SocketWriter</li>
+    </ul>
+    <p> <span style="font-weight: bold;">20210502</span> <a title="release/20210502"
+        href="../downloads/release/20210502">link</a> </p>
+    <p>Neue Funktionen</p>
+    <ul>
+      <li>Erweiterung der <a href="../configGen/index.html">Konfiguration</a>
+        für die Headless Images (Hostname, Tastatur, Umschaltung der WLAN
+        Nutzung)</li>
+      <li>Bessere Verbindung zu anderen WLAN Netzen (IP Adresse wird schneller
+        ermittelt)</li>
+    </ul>
+    <p>Fehlerkorrekturen:</p>
+    <ul>
+      <li>Korrekte Anzeige der Button Icons im Lite Mode vom Chrome auf Android
+        (<a href="https://github.com/wellenvogel/avnav/issues/128">#128</a>)</li>
+      <li>einige MCS Module für one wire wurden nicht korrekt geladen (nur für
+        headless images)</li>
+      <li>Die Auflösung für NMEA0183 services erfolgte nur einmal (jetzt korrekt
+        permanent wiederholt im Fehlerfall)</li>
+    </ul>
+    <ul>
+    </ul>
+    <p> <br>
+      <span style="font-weight: bold;">20210424</span> <a title="release/20210424"
+        href="../downloads/release/20210424">link</a> </p>
+    <p>Focus: <a href="android/android.html">Android App</a></p>
+    <ul>
+      <li>Die Android App hat jetzt einen kompletten NMEA0183 Multiplexer - so
+        wie die Server Variante</li>
+      <li>Damit kann man:</li>
+      <ul>
+        <li>verschiedene TCP/UDP NMEA0183 Datenquellen anschliessen</li>
+        <li>NMEA zu TCP/UDP Zielen senden</li>
+        <li>Mehrere USB-Seriell-Wandler nutzen um NMEA Daten zu senden und zu
+          empfangen</li>
+        <li>NMEA Daten per Bluetooth senden und empfangen</li>
+        <li>Die Daten des eigenen GPS aussenden</li>
+        <li>Den Multiplexer im Hintergrund laufen lassen und die Daten für
+          anderen Navigations-Apps bereitstellen</li>
+        <li>Mdns (Bonjour/Ahavi) nutzen um leicht eine Verbindung zu NMEA
+          Datenquellen herzustellen - auch in sich verändernden Netzwerken</li>
+        <li>Eigene NMEA Ausgänge per MDNS für andere Apps oder Systeme bekannt
+          machen</li>
+        <li>Die NMEA Daten einkommend und ausgehend mit Filter-Ausdrücken und
+          Blacklisten einschränken</li>
+        <li>Ein NMEA Log in eine Datei schreiben.</li>
+        <li>Den Status aller Verbindungen auf der Status/Server Seite anzeigen</li>
+      </ul>
+      <li>Android integriert jetzt den Webserver in den "normalen" Modus (wurde
+        vorher "external browser mode" genannt)</li>
+      <ul>
+        <li>Der Zugriff kann vom gleichen Gerät oder von anderen Geräten per
+          Browser erfolgen</li>
+        <li>Der default Port für den Webserver ist jetzt 8080</li>
+      </ul>
+      <li>Erzeugung von RMB Datensätzen, wenn ein Routing aktiv ist (kann
+        ausgesendet werden, um z.B. einen Autopiloten zu steuern)</li>
+      <li>Die Konfiguration der Android App ist jetzt weitgehend identisch zur
+        Server Version und erfolgt auf der Status/Server Seite</li>
+      <ul>
+        <li>HINWEIS: einige Konfigurationen werden von einer älteren Version
+          übernommen - jedoch nicht alle</li>
+      </ul>
+    </ul>
+    <p>Für die Raspberry Version (Headless Image):</p>
+    <ul>
+      <li>Unterstützung von USB Tethering von einem Android Gerät. Damit kann
+        man den Raspberry über das angeschlossene Gerät ins Internet bringen -
+        oder auch die Verbindung zum AvNav Server über USB herstellen (einfach,
+        wenn man unter Android den BonjourBrowser nutzt)</li>
+    </ul>
+    <p>Für alle Server Versionen (Headless Image, OpenPlotter,...):</p>
+    <ul>
+      <li>Bekanntmachen von TCP NMEA Ausgängen (AVNSocketWriter) per Avahi
+        (mdns/Bonjour) - andere AvNav server oder die Android App können sich so
+        einfach verbinden.</li>
+      <li>AVNNmea0183ServiceReader zur Verbindung mit einem Avahi (mdns/Bonjour)
+        NMEA Service (wie z.B. SignalK)</li>
+      <li>Erweiterung im <a href="hints/userjs.html">plugin API</a> - die
+        initFunction erhält nun auch die WidgetParameter beim Aufruf</li>
+    </ul>
+    <p>Fehler Korrekturen:</p>
+    <ul>
+      <li>#123: bluetooth Verbindungsabbrüche</li>
+      <li>Anpassungen an neuere gdal Versionen für den Importer</li>
+      <li>Files immer mit utf-8 encoding zum Lesen oder Schreiben öffnen (Chart
+        Konverter)</li>
+      <li>CSS Anpassung für bessere Kompatibilität mit alten Browsern</li>
+      <li>Mehr Robustheit gegen NMEA Nachrichten mit leeren Elementen</li>
+      <li>Manchmal wird im Layout Editor auch ein anderes Widget mit geändert,
+        wenn man ein kopiertes Widget ändert</li>
+    </ul>
+    <p><span style="font-weight: bold;">20210323</span> <a title="release/20210323"
+        href="../downloads/release/20210323">link</a> </p>
+    <ul>
+    </ul>
+    Fehlerkorrekturen für 20210322<br>
+    <ul>
+      <li>Windows: AvNav startet nicht nach update</li>
+      <li>Windows: SocketWriter lässt sich nicht umkonfigurieren</li>
+      <li><a href="https://github.com/wellenvogel/avnav/issues/119">#119</a>:
+        Crash in der App bei linear Gauges</li>
+      <li><a href="https://github.com/wellenvogel/avnav/issues/120">#120</a>:
+        Crash in der App wenn ein Formatter nicht (mehr) existiert</li>
+      <li>Defaultwerte für Widgets werden im Layout-Editor nicht richtig gesetzt
+        (z.B. Farben bei Gauges)</li>
+      <li>Crash in der App bei Date/Time formattern wenn keine oder falsche
+        Daten vorhanden sind</li>
+    </ul>
+    neuer Windows Installer<br>
+    <ul>
+    </ul>
+    <p><span style="font-weight: bold;">20210322</span> <a title="release/20210322"
+        href="../downloads/release/20210322">link</a> </p>
+    <p>Die größte Änderung ist die Möglichkeit, die Konfiguration des Servers
+      direkt in AvNav zu ändern (z.B. das Hinzufügen neuer Interfaces). Das
+      erfordert auch ein Update für alle plugins auf ihre neuesten Versionen. </p>
+    AvNav Core:<br>
+    <ul>
+      <li>Man kann jetzt die Konfiguration direkt in AvNav ändern (<a href="userdoc/statuspage.html">Server/Status
+          Seite</a>), die Änderungen werden ohne Restart sofort wirksam</li>
+      <li>Wenn man Karten mit leeren zoom layern nutzt (viele mbtiles Dateien)
+        ist AvNav jetzt in der Lage geringer aufgelöste Kacheln vergrößert
+        anzuzeigen. Das vermeidet leere Bereiche auf der Karte in bestimmten
+        Zoomstufen.</li>
+      <li>Man kann die Kartendarstellung jetzt skalieren(Settings/Map). Das kann
+        die Sichtbarkeit auf hochauflösenden Displays verbessern.</li>
+      <li>Es gibt eine experimentelle Vorschau auf einen split creen Modus,
+        erreichbar mit http://address:port/viewer/viewer_split.html, siehe <a href="../viewern/viewer_split.html?navurl=../viewer/avnav_navi.php&amp;amp;readOnlyServer=true">demo</a></li>
+      <li>Die Anpassung der Symbolgrössen an hochauflösende Displays sollte
+        jetzt korrekt sein.</li>
+      <li>Direkte Registrierung von AvNav bei MDNS (Bonjour), man kann den Namen
+        anpassen, der registriert wird.</li>
+      <li>Erweiterungen im <a href="hints/plugins.html">plugin API</a></li>
+    </ul>
+    <p>Raspberry Pi (Images)</p>
+    <ul>
+      <li>Unterstützung für den <a href="https://www.gedad.de/projekte/projekte-f%C3%BCr-privat/gedad-marine-control-server/">MCS
+          von GeDad</a>, siehe <a href="install.html">Image Beschreibung</a></li>
+      <li><a href="install.html">Anpassung der Images</a> vor der Benutzung mit
+        einer Konfigurationsdatei und einer Web-Oberfläche für die Erzeugung</li>
+      <li>Sowohl AvNav als auch SignalK sind jetzt per MDNS/Bonjour sichtbar</li>
+      <li>Bessere WLAN Stabilität durch Abschaltung des power save managements</li>
+      <li>Automatisches Aufsetzen einer IP Adresse am Ethernet Interface wenn
+        keine Verbidnung zu einem DHCP Server besteht</li>
+      <li>Weiterleitung von Port 80 zu AvNav (8080), erspart die Eingabe von
+        :8080 in den URLs</li>
+    </ul>
+    <p>Kleinere Fehlerkorrekturen (engl.)</p>
+    <ul>
+      <li>handle utf-8 in download names correctly</li>
+      <li>keep status on status page until we get server error, correctly show
+        and hide server error</li>
+      <li>increase network timeout</li>
+      <li>work around strange height bug on ios 12,13 safari</li>
+      <li>always use shutdown when closing sockets, re-enable timeout for socket
+        reader</li>
+      <li>#113: merge pr, correctly handle null values in SK</li>
+      <li>#117: prevent browser 2 finger zoom</li>
+      <li>restart avahi when changing the system time</li>
+      <li>avoid hiding second buttons on status page</li>
+      <li>decrease default font sizes</li>
+      <li>create an error gemf for failed conversions, add importer log display
+        on download page, timeout importer status items</li>
+      <li>allow opensuse install</li>
+      <li>show plugin info in status if startup fails</li>
+      <li>restart server</li>
+      <li>log display</li>
+      <li>server download log</li>
+      <li>cleanup name handling and thread id for logging</li>
+      <li>better timeout handling for serial (avoid reopen after 1s)</li>
+      <li>rename AVNGpsdFeeder to AVNFeeder, completely remove gpsd related code</li>
+      <li>#106: avoid writing errors to the log if empty positions lead to
+        decode errors</li>
+      <li>merge #105</li>
+      <li>adapt to new handling of com port names on windows</li>
+      <li>correct windows download links</li>
+    </ul>
+    <p> <span style="font-weight: bold;">20210115</span> <a title="release/20210115"
+        href="../downloads/release/20210115">link</a> </p>
+    <ul>
+      <li><a href="https://github.com/wellenvogel/avnav/issues/73">#73</a>:
+        Umstellung des Servers auf python3 (das bisherige python2.7 wird nicht
+        mehr gepflegt)</li>
+      <li><a href="hints/userjs.html">Plugin API</a> Java Script Erweiterung für
+        <a href="hints/overlays.html#adaptation">featureFormatter</a></li>
+      <li>Dekodierung von XDR Datensätzen</li>
+      <li>Formatter für Druck und Temperatur</li>
+      <li>Erweiterung des Java Script API - <a href="hints/userjs.html#formatter">Registrierung
+          von Formattern</a></li>
+      <li>besseres Handling für formatterParameters im <a href="hints/layouts.html">Layout
+          Editor</a></li>
+      <li><a href="hints/configfile.html#filter">NMEA filter</a> für
+        AVNSocketReader,AVNBluetoothReader und AVNUdpReader</li>
+      <li>das <a href="https://github.com/wellenvogel/avnav-history-plugin">avnav
+          history plugin</a> ist in den Paketquellen enthalten und kann mit
+        <div class="code"> sudo apt-get install avnav-history-plugin   </div>
+        installiert werden. </li>
+      <li>Fehlerkorrekturen:</li>
+      <ul>
+        <li><a href="https://github.com/wellenvogel/avnav/issues/97">#97</a>:
+          NMEA Prüfsummen mit kleinen Buchstaben</li>
+        <li>Korrektes Handling des Dimmfaktors für die Karte im Nachtmodus</li>
+      </ul>
+      <li><b>Installationshinweise</b>:<br>
+        Bei der Installation mit Paketen (apt) müssen neue Abhängigkeiten
+        installiert werden.
+        <div class="code">sudo apt-get update<br>sudo apt-get upgrade   </div>
+        Bei den headless Paketen muss vorher die Zeit gesetzt werden.
+        <div class="code">sudo date -s "2021/01/15 15:00"</div>
+        Es ist wichtig, dass auch vom <a href="hints/ocharts.html">ocharts-plugin</a>
+        die aktuelle Version 20210115 installiert wird.<br>
+        Bei der Windows Installation sollte ein neuer <a href="../downloads/release/20210115">Installer</a>
+        genutzt werden. <br>
+        Falls mit dem vorhandenen Installer ein Update ausgeführt wird, muss es
+        2 mal nacheinander durchgeführt werden, da beim ersten Mal die neue
+        Python Version nicht installiert wird.</li>
+    </ul>
     <p> <span style="font-weight: bold;">20201227</span> <a title="release/20201227"
         href="../downloads/release/20201227">link</a> </p>
     <ul>
@@ -69,12 +350,12 @@ sudo systemctl start avnav</div>
     <ul>
       <li><a href="hints/overlays.html">Karten Overlays</a></li>
       <ul>
-        <li>Man kann&nbsp; gpx,kml,kmz und geojson Dateien über die Karten
-          legen. </li>
-        <li>Mehrere Karten übereinander legen.</li>
+        <li>Man kann&nbsp; gpx,kml,kmz und geojson Dateien über die Karten legen
+        </li>
+        <li>Mehrere Karten übereinander legen</li>
         <li>Anzeige von vorhandenen Tracks und Routen</li>
         <li>Nutzerdefinierte Symbole und links mit HTML Seiten</li>
-        <li>Anzeige von Inofrmationen zu einem Punkt beim Klick</li>
+        <li>Anzeige von Informationen zu einem Punkt beim Klick</li>
       </ul>
       <li><a href="hints/ocharts.html#featureinfo">Anzeige von
           Objekt-Informationen</a> (Feature Query) bei o-charts (erfordert neue
@@ -108,7 +389,7 @@ sudo systemctl start avnav</div>
           Anzeige-Elemente bei hochauflösenden Displays</li>
         <li>"Overlay Info on Click" - Anzeige von Overlay Informationen wenn man
           auf die Karte klickt (default: ein)<br>
-          das steuert auch die Anzeige von Objekt-Informationen bei Ocharts</li>
+          das steuert auch die Anzeige von Objekt-Informationen bei o-charts</li>
         <li>"Always Info on Chart Click" - Anzeige einer Information in
           Bereichen ohne Overlays (default: aus)</li>
       </ul>
@@ -132,10 +413,10 @@ sudo systemctl start avnav</div>
     <p> Fehlerkorrekturversion für 20201105 </p>
     <ul>
       <li>Bug: Die SignalK Verbindung mit WebSockets (neu in 20201105)
-        funktioniert nocht komplett. Nicht geänderte Daten verschwinden nach
-        30s.Man konnte auch die Nutzung von WebSockets nicht abschalten.</li>
+        funktioniert nicht komplett. Nicht geänderte Daten verschwinden nach
+        30s. Man konnte auch die Nutzung von WebSockets nicht abschalten</li>
       <li>Bug: In der Dokumentation war für signalK useWebsockets falsch
-        angegeben. </li>
+        angegeben</li>
     </ul>
     <p> <span style="font-weight: bold;">20201105</span> <a title="release/20201105"
         href="../downloads/release/20201105">link</a> </p>
@@ -163,7 +444,7 @@ sudo systemctl start avnav</div>
           installiert</a> sind <a href="https://github.com/wellenvogel/avnav/issues/76">#76</a>,
         siehe <a href="hints/CanboatAndSignalk.html#SignalKCharts">SignalK
           Karten</a></li>
-      <li>Bug: N2K (canboat) arbeitet weiter auch wenn lange keine Daten
+      <li>Bug: N2K (canboat) arbeitet weiter, auch wenn lange keine Daten
         vorhanden sind</li>
       <li>Bug: Unerwarteter Wechsel von einer Seite zur anderen (doppeltes Klick
         Handling in Listen)</li>
@@ -239,7 +520,7 @@ sudo systemctl start avnav</div>
     <ul>
       <li>Fehlerkorrektur Android ständiger Notification-Ton</li>
       <li>Fehlerkorrektur Routen-Länge auf der Detail-Seite.</li>
-      <li>MOB Handling. Bei Klick auf die MOB Taste wird ein aktuelles routing
+      <li>MOB Handling. Bei Klick auf die MOB Taste wird ein aktuelles Routing
         abgebrochen, die aktuelle Position wird als Wegepunkt "MOB" gesetzt und
         es wird ein Alarm ausgelöst. Die MOB Taste bekommt einen roten Rand.
         Beendet wird das MOB über die MOB Taste oder über das Stoppen der
@@ -304,7 +585,7 @@ sudo systemctl start avnav</div>
         access point. Hier würde das WLAN auch kurzzeitig unterbrochen - Mobile
         Geräte verbinden sich dann gerne mal mit einem anderen. Solange man den
         Access Point ( default ) über das interne WLAN abwickelt, hat man keine
-        Probleme. Da es nur ein wokraround ist, wird der nicht standarmäßig
+        Probleme. Da es nur ein workaround ist, wird der nicht standarmäßig
         aktiviert - nach der Installation des Updates muss man noch den
         entsprechenden service aktivieren und starten:<br>
         <div class="code">sudo systemctl enable avnav-check-wlan
@@ -404,7 +685,7 @@ sudo systemctl start avnav-check-wlan</div>
     schalten. <br>
     Falls man ein anderes Kommando nutzen möchte (z.B. eigenes Shell-Script)
     muss man das als neues Kommando unter AVNCommandHandler eintragen, ihm einen
-    Namen geben und dann bei den alarmen diesen neuen Namen nutzen.<br>
+    Namen geben und dann bei den Alarmen diesen neuen Namen nutzen.<br>
     Man kann natürlich auch das oben angegebene "sound" Kommando durch etwas
     anderes ersetzen.<br>
     Der unter "Alarm" angegebene Parameter wird an das entsprechende Kommando

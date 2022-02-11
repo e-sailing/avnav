@@ -1,5 +1,7 @@
 package de.wellenvogel.avnav.main;
 
+import android.os.Build;
+
 /**
  * Created by andreas on 24.10.15.
  */
@@ -8,33 +10,13 @@ public class Constants {
     public static final String WORKDIR="workdir";
     public static final String CHARTDIR="chartdir";
     public static final String SHOWDEMO="showdemo";
-    public static final String INTERNALGPS="internalGps";
     public static final String EXTERNALACCESS="externalaccess";
     public static final String ALARMSOUNDS="alarmSounds";
     public static final String IPNMEA="ip.nmea";
     public static final String IPAIS="ip.ais";
     public static final String IPADDR="ip.addr";
     public static final String IPPORT="ip.port";
-    public static final String AISSENDPOS="ais.sendpos";
-    public static final String BTNMEA="bt.nmea";
-    public static final String BTAIS="bt.ais";
-    public static final String BTDEVICE="bt.device";
-    public static final String BTOFFSET="bt.offset";
-    public static final String USBDEVICE="usb.device";
-    public static final String USBNMEA="usb.nmea";
-    public static final String USBAIS="usb.ais";
-    public static final String USBBAUD="usb.baud";
-    public static final String IPCONNTIMEOUT="ip.conntimeout";
-    public static final String IPPOSAGE="ip.posAge";
-    public static final String AISLIFETIME ="ais.Lifetime";
     public static final String AISOWN="ais.own"; //own MMSI to filter
-    public static final String IPAISCLEANUPIV="ip.aisCleanupIv";
-    public static final String IPOFFSET="ip.offset";
-    public static final String GPSOFFSET="gps.offset";
-    public static final String NMEALOG="gps.logNmea";
-    public static final String AISLOG="gps.logAis";
-    public static final String NMEAFILTER="gps.filter";
-    public static final String NMEALOGFILTER="gps.logFilter";
     public static final String HIDE_BARS="layout.hideBars";
     public static final String RUNMODE="runmode"; //normal,server,xwalk
     public static final String WAITSTART="waitstart";
@@ -44,9 +26,9 @@ public class Constants {
     public static final String GPSALARM="alarm.gps";
     public static final String WAYPOINTALARM="alarm.waypoint";
     public static final String MOBALARM="alarm.mob";
-    public static final String GPS_PERMISSION_REQUESTED_NUM="permissions.numgps";
-    public static final String STORAGE_PERMISSION_REQUESTED_NUM="permissions.numstorage";
     public static final String ADDON_CONFIG="addon.config";
+    //new handler config
+    public static final String HANDLER_CONFIG="internal.handler";
 
     public static final String REALCHARTS="charts";
     public static final String CHARTPREFIX="charts";
@@ -54,6 +36,7 @@ public class Constants {
     public static final String CHARTOVERVIEW="avnav.xml";
     public final static String ASSETS_PROVIDER_AUTHORITY=BuildConfig.APPLICATION_ID+".assetsprovider";
     public final static String USER_PROVIDER_AUTHORITY=BuildConfig.APPLICATION_ID+".userprovider";
+    public static final String USB_DEVICE_EXTRA = "usbDevice" ;
     //list of audio settings
     //used to retrieve the request code for a get audio file
     public static String[] audioPreferenceCodes=new String[]{
@@ -63,26 +46,11 @@ public class Constants {
             MOBALARM
     };
     public static final String PREFNAME="AvNav";
-    //modes
-    public static final String MODE_NORMAL="normal";
-    public static final String MODE_XWALK="xwalk";
     public static final String MODE_SERVER ="server";
     public static final String LOGPRFX="avnav";
     //request codes in main activity
     public static final int SETTINGS_REQUEST=1;
     public static final int FILE_OPEN=100;
-
-    public static final String TRACKINTERVAL ="track.interval";
-    public static final String TRACKDISTANCE ="track.distance";
-    public static final String TRACKMINTIME ="track.mintime";
-    public static final String TRACKTIME ="track.time";
-
-    //modes
-    public static final String MODE_INTERNAL="internal";
-    public static final String MODE_IP="ip";
-    public static final String MODE_BLUETOOTH="bluetooth";
-    public static final String MODE_USB="usb";
-    public static final String MODE_NONE="none";
 
     public static final String BC_STOPALARM="de.wellenvogel.avnav.STOPALARM";
     public static final String BC_STOPAPPL="de.wellenvogel.avnav.STOPAPPL";
@@ -93,7 +61,7 @@ public class Constants {
 
     public static final long WATCHDOGTIME=30000; //ms
 
-    public static final String EXTRA_INITIAL="initial"; //boolean extra
+    public static final String EXTRA_INITIAL="initial"; //boolean extra - check permissions when entering settings
 
     //workdir settings
     public static final String INTERNAL_WORKDIR="workdir_internal";
@@ -101,6 +69,8 @@ public class Constants {
 
     //max size for files being transferred as string between js and android
     public static final long MAXFILESIZE=500000;
+
+    public static final boolean HAS_HEAD_SUPPORT=(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP);
 
     //js events
     public static final String JS_RELOAD="reloadData";
@@ -110,4 +80,8 @@ public class Constants {
     public static final String JS_FILE_COPY_READY="fileCopyReady";
     public static final String JS_FILE_COPY_PERCENT="fileCopyPercent"; //id will be percent
     public static final String JS_FILE_COPY_DONE="fileCopyDone"; //id will be: 0 for success, 1 for error
+    public static final String JS_DEVICE_ADDED="deviceAdded";
+    public static final String JS_REMOTE_MESSAGE="remoteMessage";
+    public static final String JS_REMOTE_CLOSE="channelClose";
+
 }

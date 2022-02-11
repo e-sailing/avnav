@@ -1,7 +1,7 @@
 #! /bin/sh
 x="`/usr/bin/getent passwd avnav`" || echo 'creating avnav user'
 if [ "$x" = "" ] ; then
-    useradd --system avnav
+    useradd --system -m avnav
 else
     echo "user avnav already exists"
 fi
@@ -13,4 +13,5 @@ if [ ! -d $BASE ] ; then
 else
     chown -R avnav $BASE
 fi
+/usr/bin/python3 -m pip install pybluez
 exit 0

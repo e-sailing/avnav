@@ -1,8 +1,7 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -26,22 +25,23 @@
 #  so refer to this BSD licencse also (see ais.py) or omit ais.py 
 ###############################################################################
 
-import SocketServer
-import BaseHTTPServer
+import socketserver
+import http.server
 import posixpath
-import urllib
-import urlparse
+import urllib.request, urllib.parse, urllib.error
+import urllib.parse
+from typing import Dict, Any
 
 import gemf_reader
 
-from httphandler import AVNHTTPHandler
+from httphandler import AVNHTTPHandler, WebSocketHandler
 
 try:
   import create_overview
 except:
   pass
 from wpahandler import *
-from avnav_config import *
+from avnav_manager import *
 hasIfaces=False
 try:
   import netifaces
@@ -50,11 +50,11 @@ except:
   pass
 import threading
 
- 
-  
+
 
 #a HTTP server with threads for each request
-class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWorker):
+class AVNHTTPServer(socketserver.ThreadingMixIn,http.server.HTTPServer, AVNWorker):
+  webSocketHandlers: Dict[str, WebSocketHandler]
   navxml=AVNUtil.NAVXML
   
   @classmethod
@@ -65,7 +65,7 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
     cls.checkSingleInstance()
     return AVNHTTPServer(cfgparam, AVNHTTPHandler)
   @classmethod
-  def getConfigParam(cls,child):
+  def getConfigParam(cls, child=None):
     if child == "Directory":
       return {
               "urlpath":None,
@@ -97,13 +97,13 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
     return rt
   
   def __init__(self,cfgparam,RequestHandlerClass):
-    replace=AVNConfig.filterBaseParam(cfgparam)
+    replace=AVNHandlerManager.filterBaseParam(cfgparam)
     if cfgparam.get('basedir')== '.':
       #some migration of the older setting - we want to use our global dir function, so consider . to be empty
       cfgparam['basedir']=''
-    self.basedir=AVNConfig.getDirWithDefault(cfgparam,'basedir',defaultSub='',belowData=False)
-    datadir=cfgparam[AVNConfig.BASEPARAM.DATADIR]
-    pathmappings=None
+    self.basedir=AVNHandlerManager.getDirWithDefault(cfgparam, 'basedir', defaultSub='', belowData=False)
+    datadir=cfgparam[AVNHandlerManager.BASEPARAM.DATADIR]
+    pathmappings={}
     marray=cfgparam.get("Directory")
     if marray is not None:
       pathmappings={}
@@ -116,7 +116,7 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
     if charturl is not None:
       #set a default chart dir if not set via config url mappings
       if self.pathmappings.get(charturl) is None:
-        self.pathmappings[charturl]=os.path.join(cfgparam[AVNConfig.BASEPARAM.DATADIR],"charts")
+        self.pathmappings[charturl]=os.path.join(cfgparam[AVNHandlerManager.BASEPARAM.DATADIR], "charts")
     self.navurl=cfgparam['navurl']
     self.overwrite_map=({
                               '.png': 'image/png',
@@ -134,12 +134,15 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
     self.addresslist=[]
     self.handlerMap={}
     self.externalHandlers={} #prefixes that will be handled externally
-    BaseHTTPServer.HTTPServer.__init__(self, server_address, RequestHandlerClass, True)
+    self.webSocketHandlers={}
+    http.server.HTTPServer.__init__(self, server_address, RequestHandlerClass, True)
   
   def run(self):
-    self.setName(self.getThreadPrefix())
-    AVNLog.info("HTTP server "+self.server_name+", "+unicode(self.server_port)+" started at thread "+self.name)
-    self.setInfo('main',"serving at port %s"%(unicode(self.server_port)),AVNWorker.Status.RUNNING)
+    self.freeAllUsedResources()
+    self.claimUsedResource(UsedResource.T_TCP,self.server_port,force=True)
+    self.setNameIfEmpty("%s-%d"%(self.getName(),self.server_port))
+    AVNLog.info("HTTP server "+self.server_name+", "+str(self.server_port)+" started at thread "+self.name)
+    self.setInfo('main',"serving at port %s"%(str(self.server_port)),WorkerStatus.RUNNING)
     if hasIfaces:
       self.interfaceReader=threading.Thread(target=self.readInterfaces)
       self.interfaceReader.daemon=True
@@ -148,7 +151,7 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
 
   def handlePathmapping(self,path):
     if not self.pathmappings is None:
-      for mk in self.pathmappings.keys():
+      for mk in list(self.pathmappings.keys()):
         if path.find(mk) == 0:
           path=self.pathmappings[mk]+path[len(mk):]
           AVNLog.ld("remapped path to",path)
@@ -157,8 +160,6 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
       return path
     else:
       return path
-
-
 
   def getChartBaseDir(self):
     chartbaseurl=self.getStringParam('chartbase')
@@ -199,6 +200,9 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
     if type == 'path':
       self.externalHandlers[command]=handler
       return
+    if type == 'websocket':
+      self.webSocketHandlers[command]=handler
+      return
     if self.handlerMap.get(type) is None:
       self.handlerMap[type]={}
     self.handlerMap[type][command]=handler
@@ -217,7 +221,7 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
     @return: an OS path
     '''
     words = path.split('/')
-    words = filter(None, words)
+    words = [_f for _f in words if _f]
     path = ""
     for word in words:
           drive, word = os.path.splitdrive(word)
@@ -234,12 +238,12 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
   def pathQueryFromUrl(cls,url):
     (path, sep, query) = url.partition('?')
     path = path.split('#', 1)[0]
-    path = posixpath.normpath(urllib.unquote(path).decode('utf-8'))
+    path = posixpath.normpath(urllib.parse.unquote(path))
     return (path,query)
 
   def tryExternalMappings(self,path,query,handler=None):
-    requestParam=requestParam=urlparse.parse_qs(query,True)
-    for prefix in self.externalHandlers.keys():
+    requestParam=urllib.parse.parse_qs(query,True)
+    for prefix in list(self.externalHandlers.keys()):
       if path.startswith(prefix):
         # the external handler can either return a mapped path (already
         # converted in an OS path - e.g. using plainUrlToPath)
@@ -260,7 +264,18 @@ class AVNHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer, AVNWo
           return osPath
         return self.plainUrlToPath("/viewer/images/"+path[len(cp)+1:],True)
 
-
+  def getWebSocketsHandler(self,path,query,handler):
+    requestParam=urllib.parse.parse_qs(query,True)
+    for prefix in list(self.webSocketHandlers.keys()):
+      if path.startswith(prefix):
+        # the external handler can either return a mapped path (already
+        # converted in an OS path - e.g. using plainUrlToPath)
+        # or just do the handling by its own and return None
+        try:
+          return self.webSocketHandlers[prefix].handleApiRequest('websocket', path, requestParam, server=self,handler=handler)
+        except:
+          AVNLog.error("no websocket handler %s: %s",path,traceback.format_exc())
+        return None
 
 
 avnav_handlerList.registerHandler(AVNHTTPServer)

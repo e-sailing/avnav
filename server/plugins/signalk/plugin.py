@@ -4,10 +4,8 @@ import re
 import sys
 import threading
 import time
-#the following import is optional
-#it only allows "intelligent" IDEs (like PyCharm) to support you in using it
 import traceback
-import urllib
+import urllib.request, urllib.parse, urllib.error
 hasWebsockets=False
 try:
   import websocket
@@ -17,8 +15,24 @@ except:
 
 from avnav_api import AVNApi
 
+class Config(object):
+  def __init__(self,api):
+    self.port = 3000
+    self.period = 1000
+    self.chartQueryPeriod = 10
+    port = api.getConfigValue('port', '3000')
+    self.port = int(port)
+    period = api.getConfigValue('period', '1000')
+    self.period = int(period) / 1000
+    self.expiryPeriod = api.getExpiryPeriod()
+    if (self.period > self.expiryPeriod):
+      self.period = self.expiryPeriod
+    self.skHost = api.getConfigValue('host', 'localhost')
+    self.chartQueryPeriod = int(api.getConfigValue('chartQueryPeriod', '10000')) / 1000
+    self.proxyMode = api.getConfigValue('proxyMode', 'sameHost')
+    self.useWebsockets = api.getConfigValue('useWebsockets', 'true').lower() == 'true'
 
-class Plugin:
+class Plugin(object):
   PATH="gps.signalk"
   CHARTNAME_PREFIX="sk-"
   AVNAV_XML="""<?xml version="1.0" encoding="UTF-8" ?>
@@ -38,6 +52,46 @@ class Plugin:
  </TileMapService>
 
   """
+  CONFIG=[
+        {
+          'name':'port',
+          'description':'set to signalk port',
+          'default':'3000',
+          'type': 'NUMBER'
+        },
+        {
+          'name': 'host',
+          'description': 'set to signalk host',
+          'default': 'localhost'
+        },
+        {
+          'name':'period',
+          'description':'query period in ms',
+          'default':'1000',
+          'type':'NUMBER'
+        },
+        {
+          'name': 'chartQueryPeriod',
+          'description': 'charts query period in ms, 0 to disable',
+          'default': '10000',
+          'type':'NUMBER'
+        },
+        {
+          'name': 'chartProxyMode',
+          'description': 'proxy tile requests: never,always,sameHost',
+          'default': 'sameHost',
+          'type': 'SELECT',
+          'rangeOrList':['never','always','sameHost']
+        },
+        {
+          'name': 'useWebsockets',
+          'description': 'use websockets if the package is available - true or false',
+          'default': True,
+          'type': 'BOOLEAN'
+
+        }
+        ]
+
 
   @classmethod
   def pluginInfo(cls):
@@ -53,44 +107,7 @@ class Plugin:
     return {
       'description': 'a plugin that fetches vessels data from signalk',
       'version': '1.0',
-      'config':[
-        {
-          'name':'enabled',
-          'description':'set to true to enable plugin',
-          'default':'false'
-        },
-        {
-          'name':'port',
-          'description':'set to signalk port',
-          'default':'3000'
-        },
-        {
-          'name': 'host',
-          'description': 'set to signalk host',
-          'default': 'localhost'
-        },
-        {
-          'name':'period',
-          'description':'query period in ms',
-          'default':'1000'
-        },
-        {
-          'name': 'chartQueryPeriod',
-          'description': 'charts query period in ms, 0 to disable',
-          'default': '10000'
-        },
-        {
-          'name': 'chartProxyMode',
-          'description': 'proxy tile requests: never,always,sameHost',
-          'default': 'sameHost'
-        },
-        {
-          'name': 'useWebsockets',
-          'description': 'use websockets if the package is available - true or false',
-          'default': 'true'
-        },
-
-      ],
+      'config': cls.CONFIG,
       'data': [
         {
           'path': cls.PATH+".*",
@@ -111,14 +128,35 @@ class Plugin:
     self.api.registerRequestHandler(self.requestHandler)
     self.skCharts=[]
     self.connected=False
-    self.skHost='localhost'
-    self.proxyMode='sameHost'
     self.webSocket=None
     self.useWebsockets=True
+    self.api.registerEditableParameters(self.CONFIG,self.changeParam)
+    self.api.registerRestart(self.stop)
+    self.startSequence=0
+    self.config=None # Config
+    self.userAppId=None
 
+  def stop(self):
+    self.startSequence+=1
 
+  def changeParam(self,param):
+    self.api.saveConfigValues(param)
+    self.startSequence+=1
 
   def run(self):
+    self.api.registerLayout("example", "example.json")
+    self.api.registerChartProvider(self.listCharts)
+    while not self.api.shouldStopMainThread():
+      self.config=Config(self.api)
+      self._runInternal()
+      try:
+        self.webSocket.close()
+      except:
+        pass
+
+
+  def _runInternal(self):
+    sequence=self.startSequence
     """
     the run method
     this will be called after successfully instantiating an instance
@@ -127,40 +165,20 @@ class Plugin:
     and writes them to the store every 10 records
     @return:
     """
-    enabled = self.api.getConfigValue('enabled','false')
-    if enabled.lower() != 'true':
-      self.api.setStatus("INACTIVE","module not enabled in server config")
-      self.api.log("module disabled")
-      return
-    port=3000
-    period=1000
-    chartQueryPeriod=10
-    try:
-      port=self.api.getConfigValue('port','3000')
-      port=int(port)
-      period=self.api.getConfigValue('period','1000')
-      period=int(period)/1000
-      expiryPeriod=self.api.getExpiryPeriod()/3
-      if (period > expiryPeriod):
-        period=expiryPeriod
-      self.skHost=self.api.getConfigValue('host','localhost')
-      chartQueryPeriod=int(self.api.getConfigValue('chartQueryPeriod','10000'))/1000
-      self.proxyMode=self.api.getConfigValue('proxyMode','sameHost')
-      self.useWebsockets=self.api.getConfigValue('useWebsockets','true').lower() == 'true'
-    except:
-      self.api.log("exception while reading config values %s",traceback.format_exc())
-      raise
-    self.api.log("started with host %s port %d, period %d"%(self.skHost,port,period))
-    baseUrl="http://%s:%d/signalk"%(self.skHost,port)
-    if self.skHost == "localhost":
-      self.api.registerUserApp("http://$HOST:%s"%port,"signalk.svg")
+    self.api.log("started with host %s port %d, period %d"
+                 %(self.config.skHost,self.config.port,self.config.period))
+    baseUrl="http://%s:%d/signalk"%(self.config.skHost,self.config.port)
+    if self.userAppId is not None:
+      self.api.unregisterUserApp(self.userAppId)
+      self.userAppId=None
+    if self.config.skHost == "localhost":
+      self.userAppId=self.api.registerUserApp("http://$HOST:%s"%self.config.port,"signalk.svg")
     else:
-      self.api.registerUserApp("http://%s:%s" % (self.skHost,port), "signalk.svg")
-    self.api.registerLayout("example","example.json")
-    self.api.registerChartProvider(self.listCharts)
+      self.userAppId=self.api.registerUserApp("http://%s:%s" %
+                               (self.config.skHost,self.config.port), "signalk.svg")
     errorReported=False
     self.api.setStatus("STARTED", "connecting at %s" % baseUrl)
-    while True:
+    while sequence == self.startSequence:
       apiUrl=None
       websocketUrl=None
       if self.webSocket is not None:
@@ -169,11 +187,13 @@ class Plugin:
         except:
           pass
         self.webSocket=None
-      while apiUrl is None:
+      while apiUrl is None :
+        if sequence != self.startSequence:
+          return
         self.connected=False
         responseData=None
         try:
-          response=urllib.urlopen(baseUrl)
+          response=urllib.request.urlopen(baseUrl)
           if response is None:
             raise Exception("no response on %s"%baseUrl)
           responseData=json.loads(response.read())
@@ -183,7 +203,7 @@ class Plugin:
           endpoints = responseData.get('endpoints')
           if endpoints is None:
             raise Exception("no endpoints in response to %s"%baseUrl)
-          for k in endpoints.keys():
+          for k in list(endpoints.keys()):
             ep=endpoints[k]
             if apiUrl is None:
               apiUrl=ep.get('signalk-http')
@@ -206,9 +226,9 @@ class Plugin:
       self.connected = True
       useWebsockets = self.useWebsockets and hasWebsockets and websocketUrl is not None
       if useWebsockets:
-        if period < expiryPeriod:
-          period=expiryPeriod
-        self.api.log("using websockets at %s, querying with period %d", websocketUrl,period)
+        if self.config.period < self.config.expiryPeriod:
+          self.config.period=self.config.expiryPeriod
+        self.api.log("using websockets at %s, querying with period %d", websocketUrl,self.config.period)
         if self.webSocket is not None:
           try:
             self.webSocket.close()
@@ -227,43 +247,57 @@ class Plugin:
         lastChartQuery=0
         lastQuery=0
         first=True # when we newly connect, just query everything once
-        while self.connected:
+        errorReported=False
+        while self.connected and self.startSequence == sequence:
           now = time.time()
           #handle time shift backward
           if lastChartQuery > now:
             lastChartQuery=0
           if lastQuery > now:
             lastQuery=0
-          if (now - lastQuery) > period or first:
-            lastQuery=now
-            response=urllib.urlopen(selfUrl)
-            if response is None:
-              self.skCharts=[]
-              raise Exception("unable to fetch from %s:%s",selfUrl,sys.exc_info()[0])
-            if not first:
-              self.api.setStatus("NMEA", "connected at %s" % apiUrl)
-            data=json.loads(response.read())
-            self.api.debug("read: %s",json.dumps(data))
-            self.storeData(data,self.PATH)
+          if (now - lastQuery) > self.config.period or first:
             first=False
-            name=data.get('name')
-            if name is not None:
-              self.api.addData(self.PATH+".name",name)
+            lastQuery=now
+            response=None
+            try:
+              response=urllib.request.urlopen(selfUrl)
+              if response is None:
+                self.skCharts = []
+                if not errorReported:
+                  self.api.error("unable to fetch from %s: None", selfUrl)
+                  errorReported=True
+            except Exception as e:
+              self.skCharts=[]
+              if not errorReported:
+                self.api.error("unable to fetch from %s:%s",selfUrl,str(e))
+                errorReported=True
+            if response is not None:
+              errorReported=False
+              if not first:
+                self.api.setStatus("NMEA", "connected at %s" % apiUrl)
+              data=json.loads(response.read())
+              self.api.debug("read: %s",json.dumps(data))
+              self.storeData(data,self.PATH)
+              name=data.get('name')
+              if name is not None:
+                self.api.addData(self.PATH+".name",name)
           else:
             pass
-          if chartQueryPeriod > 0 and lastChartQuery < (now - chartQueryPeriod):
+          if self.config.chartQueryPeriod > 0 and lastChartQuery < (now - self.config.chartQueryPeriod):
             lastChartQuery=now
             try:
-              self.queryCharts(apiUrl,port)
+              self.queryCharts(apiUrl,self.config.port)
             except Exception as e:
               self.skCharts=[]
               self.api.debug("exception while reading chartlist %s",traceback.format_exc())
-          sleepTime=1 if period > 1 else period
+          sleepTime=1 if self.config.period > 1 else self.config.period
           time.sleep(sleepTime)
       except:
         self.api.log("error when fetching from signalk %s: %s",apiUrl,traceback.format_exc())
         self.api.setStatus("ERROR","error when fetching from signalk %s"%(apiUrl))
         self.connected=False
+        if sequence != self.startSequence:
+          return
         time.sleep(5)
 
   def webSocketRun(self):
@@ -335,7 +369,7 @@ class Plugin:
 
   def queryCharts(self,apiUrl,port):
     charturl = apiUrl + "resources/charts"
-    chartlistResponse = urllib.urlopen(charturl)
+    chartlistResponse = urllib.request.urlopen(charturl)
     if chartlistResponse is None:
       self.skCharts = []
       return
@@ -343,12 +377,12 @@ class Plugin:
     newList = []
     pluginUrl= self.api.getBaseUrl()
     baseUrl = pluginUrl + "/api/charts/"
-    for chart in chartlist.values():
+    for chart in list(chartlist.values()):
       name = chart.get('identifier')
       if name is None:
         continue
       name = self.CHARTNAME_PREFIX + name
-      url = baseUrl + urllib.quote(name)
+      url = baseUrl + urllib.parse.quote(name)
       bounds=chart.get('bounds')
       #bounds is upperLeftLon,upperLeftLat,lowerRightLon,lowerRightLat
       #          minlon,      maxlat,      maxlon,       minlat
@@ -363,11 +397,12 @@ class Plugin:
         'name': name,
         'url': url,
         'charturl': url,
-        'sequence': 0,  # TODO
+        'sequence': self.startSequence,
         'canDelete': False,
         'icon': pluginUrl+"/signalk.svg",
+        'upzoom': True,
         'internal': {
-          'url': "http://%s:%d" % (self.skHost, port) + chart.get('tilemapUrl'),
+          'url': "http://%s:%d" % (self.config.skHost, port) + chart.get('tilemapUrl'),
           'minlon': bounds[0],
           'maxlat': bounds[1],
           'maxlon': bounds[2],
@@ -384,7 +419,7 @@ class Plugin:
     if 'value' in node:
       self.api.addData(prefix, node.get('value'), 'signalk')
       return
-    for key, item in node.items():
+    for key, item in list(node.items()):
       if isinstance(item,dict):
         self.storeData(item,prefix+"."+key)
 
@@ -431,7 +466,7 @@ class Plugin:
         requestHostAddr = requestHost.split(':')[0]
         url='tiles'
         doProxy=False
-        if self.proxyMode=='always' or ( self.proxyMode=='sameHost' and self.skHost != 'localhost'):
+        if self.config.proxyMode=='always' or ( self.config.proxyMode=='sameHost' and self.config.skHost != 'localhost'):
           doProxy=True
         if not doProxy:
           #no proxying, direct access to sk for charts
@@ -447,7 +482,7 @@ class Plugin:
         handler.send_header("Content-Length", len(data))
         handler.send_header("Last-Modified", handler.date_time_string())
         handler.end_headers()
-        handler.wfile.write(data)
+        handler.wfile.write(data.encode('utf-8'))
         return True
       if parr[1] == "sequence":
         return {'status':'OK','sequence':0}
@@ -457,10 +492,10 @@ class Plugin:
                 'x':parr[3],
                 'y':re.sub("\..*","",parr[4])}
       skurl=chart['internal']['url']
-      for k in replaceV.keys():
+      for k in list(replaceV.keys()):
         skurl=skurl.replace("{"+k+"}",replaceV[k])
       try:
-        tile = urllib.urlopen(skurl)
+        tile = urllib.request.urlopen(skurl)
         if tile is None:
           return None
         tileData = tile.read()

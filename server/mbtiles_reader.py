@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
@@ -24,6 +24,7 @@
 #
 ###############################################################################
 # read mbtiles files and provide them for access via http
+
 import os
 import sqlite3
 import sys
@@ -38,7 +39,7 @@ from avnav_util import AVNLog, AVNUtil, ChartFile
 #tile_column => x
 #tile_row => 2^^z-1-y
 
-class QueueEntry:
+class QueueEntry(object):
   def __init__(self,tile):
     self.cond=threading.Condition()
     self.tile=tile
@@ -54,6 +55,12 @@ class QueueEntry:
       self.cond.wait(5)
       self.cond.release()
 
+  def wakeUp(self):
+    self.cond.acquire()
+    try:
+      self.cond.notifyAll()
+    finally:
+      self.cond.release()
   def setData(self,data):
     self.cond.acquire()
     self.data=data
@@ -86,6 +93,13 @@ class MBTilesFile(ChartFile):
     if not self.schemeInconsistent:
       return None
     return self.originalScheme
+
+  def wakeUp(self):
+    self.cond.acquire()
+    try:
+      self.cond.notify_all()
+    finally:
+      self.cond.release()
 
   def handleRequests(self):
     connection=sqlite3.connect(self.filename)
@@ -216,7 +230,7 @@ class MBTilesFile(ChartFile):
           el['xmax'] = self.colToX(zl, colmima[1])
         zoomLevelBoundings[zl] = el
     except Exception as e:
-      AVNLog.error("error reading base info from %s:%s", self.filename, e.message)
+      AVNLog.error("error reading base info from %s:%s", self.filename, str(e))
     self.zoomlevels=zoomlevels
     self.zoomLevelBoundings=zoomLevelBoundings
     if cu is not None:
@@ -286,7 +300,7 @@ class MBTilesFile(ChartFile):
   def getDownloadFile(self):
     return self.filename
 
-  def __unicode__(self):
+  def __str__(self):
     rt="mbtiles %s " %(self.filename)
     return rt
 
@@ -294,7 +308,7 @@ class MBTilesFile(ChartFile):
 if __name__ == "__main__":
   f=MBTilesFile(sys.argv[1])
   f.open()
-  print "read file %s" %(f,)
-  print f.getAvnavXml()
+  print("read file %s" %(f,))
+  print(f.getAvnavXml())
 
 

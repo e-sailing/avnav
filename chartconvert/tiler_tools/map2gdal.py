@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # 2011-04-10 13:33:20 
@@ -25,7 +25,6 @@
 #  DEALINGS IN THE SOFTWARE.
 #******************************************************************************
 
-from __future__ import with_statement
 
 import os
 import logging
@@ -47,11 +46,11 @@ class_map=(
     )
 
 def proc_src(src):
-    with open(src,'rU') as f:
+    with open(src,'rb') as f:
         lines=[f.readline() for i in range(10)]
     for cls in class_map:
         patt=cls.magic
-        if any((l.startswith(patt) for l in lines)):
+        if any((l.startswith(patt.encode('ascii')) for l in lines)):
             break
     else:
         raise Exception(" Invalid file: %s" % src)
@@ -105,5 +104,5 @@ if __name__=='__main__':
     ld(os.name)
     ld(options)
 
-    map(proc_src,args)
+    list(map(proc_src,args))
 

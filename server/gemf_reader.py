@@ -1,8 +1,8 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 # vim: ts=2 sw=2 et ai
 ###############################################################################
-# Copyright (c) 2012,2013 Andreas Vogel andreas@wellenvogel.net
+# Copyright (c) 2012,2021 Andreas Vogel andreas@wellenvogel.net
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a
 #  copy of this software and associated documentation files (the "Software"),
@@ -23,6 +23,7 @@
 #  DEALINGS IN THE SOFTWARE.
 #
 ###############################################################################
+
 # read gemf files and provide them for access via http
 # see http://www.cgtk.co.uk/gemf
 import sys
@@ -76,6 +77,7 @@ class GemfFile(ChartFile):
       if (namelen > 0):
         buf=handle.read(namelen)
         (name,)=struct.unpack_from("!%ds"%namelen,buf,0)
+        name=name.decode('ascii',errors='ignore')
       source={'num':i,'idx':idx,'name':name}
       self.sources.append(source)
     #rangenum
@@ -226,7 +228,7 @@ class GemfFile(ChartFile):
       if os.path.isfile(aname):
         os.unlink(aname)
 
-  def __unicode__(self):
+  def __str__(self):
     rt="GEMF %s (srcnum=%d:" %(self.filename,self.numsources)
     for s in self.sources:
       rt+="%(num)d,%(idx)d,%(name)s;" % s
@@ -237,7 +239,7 @@ class GemfFile(ChartFile):
       rt+=" flen=%d," % l
     return rt
 
-  def changeScheme(self,schema):
+  def changeScheme(self,schema,createOverview=True):
     raise Exception("change schema not allowed for %s"%self.filename)
   def getScheme(self):
     return None
@@ -267,6 +269,6 @@ class GemfFile(ChartFile):
 if __name__ == "__main__":
   f=GemfFile(sys.argv[1])
   f.open()
-  print "read file %s" %(f,)
+  print("read file %s" %(f,))
 
 
