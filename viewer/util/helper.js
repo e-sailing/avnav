@@ -104,10 +104,9 @@ Helper.filterObjectTree=function(source,filterFunction,opt_basepath){
     return rt;
 };
 
-Helper.getExt=(name,opt_stripDot)=>{
+Helper.getExt=(name)=>{
     if (!name) return;
     let rt=name.replace(/.*\./,'').toLocaleLowerCase();
-    if (opt_stripDot) return rt.replace(/^\./,'')
     return rt;
 };
 
@@ -119,7 +118,7 @@ Helper.filteredAssign=function(){
         let o=args[k];
         if (! o) continue;
         for (let ok in filter){
-            if (o[ok] !== undefined) rt[ok]=o[ok];
+            if (ok in o ) rt[ok]=o[ok];
         }
     }
     return rt;
